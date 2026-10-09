@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lấy số thứ tự · HIS mini</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+body{display:grid;place-items:center;min-height:100vh;padding:16px}
+main{width:min(680px,100%);text-align:center}
+main h1{margin:0 0 4px;font-size:28px}
+.box{margin-top:18px;padding:22px;border-radius:14px;background:var(--card);box-shadow:var(--sh)}
+#qr{font-size:20px;text-align:center;padding:14px}
+#res .banner{text-align:left;font-size:17px;margin:0}
+#cam video{width:100%;max-height:300px;border-radius:10px;background:#000}
+#slip{display:none}
+@media print{body>*:not(#slip){display:none}#slip{display:block}}
+</style>
+</head>
+<body>
+<main>
+  <small class="mut">BỆNH VIỆN ĐA KHOA HIS MINI (giả lập)</small>
+  <h1>Lấy số thứ tự khám bệnh BHYT</h1>
+  <p class="mut">Đặt mã QR trên căn cước công dân vào đầu đọc để lấy số.</p>
+  <div class="box">
+    <label for="qr" class="mut">Mã QR căn cước công dân</label>
+    <input id="qr" autofocus autocomplete="off" placeholder="Quét mã QR hoặc dán chuỗi QR rồi nhấn Enter">
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="p" id="go">Lấy số</button><button id="camBtn">Dùng camera</button></div>
+    <div id="cam" hidden style="margin-top:12px"><video playsinline muted></video></div>
+  </div>
+  <div class="box" id="res" hidden aria-live="polite"></div>
+  <details style="margin-top:18px"><summary class="mut">Dữ liệu thử (giả lập)</summary><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px" id="demo"></div></details>
+</main>
+<div id="slip"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const dmy = d => String(d).split('-').reverse().join('/');
+let stream, reset;
+
+// QR thử khớp với dữ liệu seed: thẻ còn hạn, thẻ hết hạn, chưa có thẻ
+const SAMPLE = [['Thẻ còn hạn', '001090000001', 'Nguyễn Văn An', '14051990'], ['Thẻ hết hạn', '001088000005', 'Hoàng Văn Em', '09011988'], ['Không có thẻ', '001095000004', 'Phạm Thị Dung', '30071995']];
+$('#demo').innerHTML = SAMPLE.map(([n, id, name, d], i) => `<button data-i="${i}">${n}</button>`).join('');
+$('#demo').onclick = e => { const s = SAMPLE[e.target.dataset.i]; if (s) submit(`${s[1]}||${s[2]}|${s[3]}|Nam|Quận 8, TP.HCM|01012021`); };
+
+function show(cls, html) { const r = $('#res'); r.hidden = false; r.innerHTML = `<div class="banner ${cls}">${html}</div>`; clearTimeout(reset); reset = setTimeout(clear, 20000); }
+function clear() { $('#res').hidden = true; $('#qr').value = ''; $('#qr').focus(); }
+
+async function submit(qr) {
+  stopCam();
+  qr = qr.trim();
+  if (!qr) return;
+  try {
+    const r = await fetch('/api/v1/kiosk/tickets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ qr }) });
+    const j = await r.json();
+    if (r.ok) {
+      show('ok', `<div style="text-align:center"><div>Số thứ tự của bạn</div><div class="ticket">${esc(j.label)}</div><b>${esc(j.citizen.full_name)}</b><br>
+        Thẻ BHYT còn hiệu lực đến ${esc(dmy(j.insurance.valid_to))}${j.reused ? '<br>(Bạn đã lấy số hôm nay, đây là số đang chờ)' : ''}<br>Vui lòng đến quầy tiếp nhận khi được gọi số.<br><br><button onclick="window.print()">In phiếu số</button></div>`);
+      $('#slip').innerHTML = `<div style="text-align:center"><b>BỆNH VIỆN ĐA KHOA HIS MINI</b><h1>PHIẾU SỐ THỨ TỰ</h1><div style="font-size:72px;font-weight:800">${esc(j.label)}</div>${esc(j.citizen.full_name)}<br>${new Date().toLocaleString('vi-VN')}</div>`;    } else show(r.status === 409 ? 'warn' : 'bad', `<b>${r.status === 409 ? 'Không thể cấp số' : 'Lỗi'}</b><br>${esc(j.message)}`);
+  } catch { show('bad', 'Không kết nối được máy chủ. Vui lòng đến quầy tiếp nhận.'); }
+  $('#qr').value = '';
+}
+
+async function startCam() {
+  if (!('BarcodeDetector' in window)) return show('warn', 'Trình duyệt này chưa hỗ trợ quét bằng camera. Hãy dùng đầu đọc QR.');
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const v = $('video'); v.srcObject = stream; await v.play(); $('#cam').hidden = false;
+    const det = new BarcodeDetector({ formats: ['qr_code'] });
+    (async function loop() {
+      if (!stream) return;
+      const [hit] = await det.detect(v).catch(() => []);
+      hit ? submit(hit.rawValue) : setTimeout(loop, 300);
+    })();
+  } catch { show('warn', 'Không mở được camera. Hãy dùng đầu đọc QR.'); }
+}
+function stopCam() { stream?.getTracks().forEach(t => t.stop()); stream = null; $('#cam').hidden = true; }
+
+$('#qr').onkeydown = e => { if (e.key === 'Enter') submit(e.target.value); };
+$('#go').onclick = () => submit($('#qr').value);
+$('#camBtn').onclick = () => (stream ? stopCam() : startCam());
+</script>
+</body>
+</html>

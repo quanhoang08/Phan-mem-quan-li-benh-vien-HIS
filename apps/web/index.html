@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HIS mini · Bệnh viện Đa khoa (giả lập)</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="login" hidden>
+  <section class="hero">
+    <div>
+      <div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></svg></div>
+      <h1>Hệ thống thông tin bệnh viện</h1>
+      <p>Quản lý khám chữa bệnh ngoại trú từ tiếp đón, khám, cận lâm sàng, dược đến thanh toán trên một luồng duy nhất.</p>
+      <ul><li>Tiếp đón theo CCCD, kiểm tra thẻ BHYT</li><li>Bệnh án điện tử, ICD-10, cảnh báo dị ứng</li><li>Cấp phát thuốc theo tồn kho, thu tiền một lần</li><li>Nhật ký truy vết từng thao tác</li></ul>
+    </div>
+    <small style="color:#cfe3e6">Bản mô phỏng phục vụ học tập. Chỉ dùng dữ liệu giả.</small>
+  </section>
+  <section class="lform"><div>
+    <h2>Đăng nhập</h2>
+    <label for="lu">Tên đăng nhập</label><input id="lu" autocomplete="username">
+    <label for="lp" style="margin-top:12px">Mật khẩu</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">
+    <button class="p" id="loginBtn" style="width:100%;margin-top:16px;padding:10px" onclick="login()">Đăng nhập</button>
+    <p style="margin:22px 0 8px"><small>Tài khoản demo (mật khẩu <code>his12345</code>), bấm để điền:</small></p>
+    <div class="demo" id="demo"></div>
+  </div></section>
+</div>
+<div id="app" hidden>
+  <aside id="side">
+    <div class="brand"><div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></svg></div><div><b>HIS mini</b><small>BV Đa khoa (giả lập)</small></div></div>
+    <nav id="menu"></nav>
+    <div class="side-foot">Dữ liệu giả · không dùng cho bệnh nhân thật</div>
+  </aside>
+  <div id="shell">
+    <header id="top"><div id="crumb"></div><span id="clock"></span>
+      <div class="me"><span class="av" id="av"></span><span id="who"></span></div>
+      <button onclick="logout()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Đăng xuất</button></header>
+    <div id="flow" aria-label="Số người chờ mỗi trạm"></div>
+    <main id="main"></main>
+  </div>
+</div>
+<div id="print"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/js/core.js"></script>
+<script src="/js/queue.js"></script>
+<script src="/js/reception.js"></script>
+<script src="/js/exam.js"></script>
+<script src="/js/lab.js"></script>
+<script src="/js/pharmacy.js"></script>
+<script src="/js/cashier.js"></script>
+<script src="/js/reports.js"></script>
+<script src="/js/admin.js"></script>
+<script>boot();</script>
+</body>
+</html>

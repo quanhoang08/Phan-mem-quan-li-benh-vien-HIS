@@ -1,0 +1,25 @@
+{
+  "name": "his-mini",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "migrate": "node apps/api/src/cli.js migrate",
+    "seed": "node apps/api/src/cli.js seed",
+    "db:reset": "node apps/api/src/cli.js reset",
+    "setup": "npm run migrate && npm run seed",
+    "start": "node apps/api/src/server.js",
+    "pretest": "node --env-file=.env.test apps/api/src/cli.js reset",
+    "test": "node --env-file=.env.test --test --test-concurrency=1 apps/api/test/*.test.js",
+    "test:e2e": "playwright test -c e2e/playwright.config.js",
+    "db:backup": "docker compose exec -T db pg_dump -U his his > backup.sql",
+    "db:restore": "docker compose exec -T db psql -U his -d his < backup.sql"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

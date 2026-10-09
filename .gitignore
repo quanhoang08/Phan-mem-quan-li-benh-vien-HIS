@@ -1,0 +1,28 @@
+# phụ thuộc
+node_modules/
+
+# kết quả test
+test-results/
+playwright-report/
+coverage/
+
+# biến môi trường (chứa chuỗi kết nối, mật khẩu)
+.env
+.env.*
+!.env.example
+# .env.test chỉ có chuỗi kết nối DB giả của môi trường test, npm test cần file này
+!.env.test
+
+# log, file tạm
+*.log
+npm-debug.log*
+
+# hệ điều hành, trình soạn thảo
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# công cụ
+graphify-out/
+.claude/
