@@ -647,7 +647,11 @@ test('BR-Q-4: chốt ngày hủy mọi lượt còn chờ khám với lý do v�
 
 // Bước 1: lấy số ở kiosk (không đăng nhập), quét QR CCCD, thẻ BHYT còn hạn mới được cấp số
 const qrOf = (id, name, dob = '14051990') => `${id}||${name}|${dob}|Nam|Quận 8, TP.HCM|01012021`;
-const kiosk = (path, qr) => fetch(srv.base + '/api/v1' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ qr }) }).then(async x => ({ s: x.status, j: await x.json() }));
+const kiosk = (path, qr, extra) => fetch(srv.base + '/api/v1' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ qr, ...extra }) }).then(async x => ({ s: x.status, j: await x.json() }));
+const kioskTicket = async (qr, extra) => { // OTP giả: lấy mã từ dev_code của cổng định danh mock
+  const o = await kiosk('/kiosk/otp', qr);
+  return o.s === 200 ? kiosk('/kiosk/tickets', qr, { otp: o.j.dev_code, ...extra }) : o;
+};
 test('kiosk: thẻ BHYT còn hạn được cấp số, quét lại nhận đúng số cũ, lễ tân tiếp nhận thì phiếu hết chờ', async () => {
   const id = '001091000099', qr = qrOf(id, 'Kiosk Thử Một');
   const p = ok(await rec('POST', '/patients', { id_type: 'CCCD', id_number: id, full_name: 'Kiosk Thử Một', dob: '1990-05-14', sex: 'MALE' }), 201).patient;
@@ -656,22 +660,49 @@ test('kiosk: thẻ BHYT còn hạn được cấp số, quét lại nhận đún
   const chk = ok(await kiosk('/kiosk/check', qr));
   assert.equal(chk.insurance.valid, true);
   assert.equal(chk.insurance.card_no, 'DN4*********001'); // không lộ đủ số thẻ
-  const t1 = ok(await kiosk('/kiosk/tickets', qr), 201);
+  const t1 = ok(await kioskTicket(qr), 201);
   assert.match(t1.label, /^A\d{3}$/);
-  const t2 = ok(await kiosk('/kiosk/tickets', qr));
+  const t2 = ok(await kioskTicket(qr));
   assert.deepEqual([t2.id, t2.label, t2.reused], [t1.id, t1.label, true]);
   assert.ok(ok(await rec('GET', '/tickets')).some(t => t.id === t1.id));
   ok(await rec('POST', '/encounters', { patient_id: p.id, room_id: rooms.NOI, ticket_id: t1.id }), 201);
   assert.ok(!ok(await rec('GET', '/tickets')).some(t => t.id === t1.id));
+  err(await kioskTicket(qr), 409, 'ALREADY_REGISTERED'); // đã tiếp nhận thì không cấp số mới
+});
+test('kiosk: đăng ký bằng phiếu của người khác bị chặn, phiếu vẫn còn chờ', async () => {
+  const a = ok(await rec('POST', '/patients', { id_type: 'CCCD', id_number: '001091000098', full_name: 'Kiosk Thử Hai', dob: '1990-05-14', sex: 'MALE' }), 201).patient, y = new Date().getFullYear();
+  ok(await rec('POST', `/patients/${a.id}/insurance`, { card_no: 'DN4010000098001', facility_code: '01001', valid_from: `${y}-01-01`, valid_to: `${y}-12-31` }), 201);
+  const t = ok(await kioskTicket(qrOf('001091000098', 'Kiosk Thử Hai')), 201);
+  const p =ok(await rec('POST', '/patients', { id_type: 'CCCD', id_number: '001091000097', full_name: 'Người Khác', dob: '1990-05-14', sex: 'MALE' }), 201).patient;
+  err(await rec('POST', '/encounters', { patient_id: p.id, room_id: rooms.NOI, ticket_id: t.id }), 409, 'TICKET_MISMATCH');
+  assert.ok(ok(await rec('GET', '/tickets')).some(x => x.id === t.id));
+});
+test('kiosk: OTP sai, thiếu, dùng lại hoặc sai 3 lần thì không cấp số; không tự đi lại được thì có ưu tiên', async () => {
+  const id = '001091000096', qr = qrOf(id, 'Kiosk Thử Ba', '14051990');
+  const p = ok(await rec('POST', '/patients', { id_type: 'CCCD', id_number: id, full_name: 'Kiosk Thử Ba', dob: '1990-05-14', sex: 'MALE' }), 201).patient, y = new Date().getFullYear();
+  ok(await rec('POST', `/patients/${p.id}/insurance`, { card_no: 'DN4010000096001', facility_code: '01001', valid_from: `${y}-01-01`, valid_to: `${y}-12-31` }), 201);
+  err(await kiosk('/kiosk/tickets', qr, { otp: '123456' }), 403, 'OTP_EXPIRED'); // chưa xin mã
+  let o = ok(await kiosk('/kiosk/otp', qr));
+  const bad = o.dev_code === '000000' ? '111111' : '000000';
+  for (let i = 0; i < 3; i++) err(await kiosk('/kiosk/tickets', qr, { otp: bad }), 403, 'OTP_INVALID');
+  err(await kiosk('/kiosk/tickets', qr, { otp: o.dev_code }), 403, 'OTP_EXPIRED'); // sai 3 lần thì mã bị hủy
+  o = ok(await kiosk('/kiosk/otp', qr));
+  const t = ok(await kiosk('/kiosk/tickets', qr, { otp: o.dev_code, cannot_walk: true }), 201);
+  assert.equal(t.priority, 'DISABLED');
+  err(await kiosk('/kiosk/tickets', qr, { otp: o.dev_code }), 403, 'OTP_EXPIRED'); // dùng một lần
+  assert.equal(ok(await rec('GET', '/tickets')).find(x => x.id === t.id).priority, 'DISABLED');
+  ok(await rec('PATCH', `/tickets/${t.id}`, { room_id: rooms.NOI }));
+  assert.equal(ok(await rec('GET', '/tickets')).find(x => x.id === t.id).room_id, rooms.NOI);
+  err(await cash('PATCH', `/tickets/${t.id}`, { room_id: rooms.NOI }), 403, 'FORBIDDEN');
 });
 test('kiosk: thẻ hết hạn, không có thẻ hoặc QR sai thì không cấp số', async () => {
   const before = (await pool.query('SELECT count(*) n FROM ticket')).rows[0].n;
   for (const [id, name] of [['001088000005', 'Hoàng Văn Em'], ['001095000004', 'Phạm Thị Dung']]) {
-    const r = await kiosk('/kiosk/tickets', qrOf(id, name));
+    const r = await kioskTicket(qrOf(id, name));
     err(r, 409, 'INSURANCE_INVALID');
     assert.match(r.j.message, /khám dịch vụ.*mua bảo hiểm y tế/);
   }
-  err(await kiosk('/kiosk/tickets', 'khong-phai-qr'), 400, 'VALIDATION');
+  err(await kioskTicket('khong-phai-qr'), 400, 'VALIDATION');
   assert.equal((await pool.query('SELECT count(*) n FROM ticket')).rows[0].n, before);
   err(await cash('GET', '/tickets'), 403, 'FORBIDDEN');
 });

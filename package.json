@@ -9,6 +9,7 @@
     "seed": "node apps/api/src/cli.js seed",
     "db:reset": "node apps/api/src/cli.js reset",
     "setup": "npm run migrate && npm run seed",
+    "demo": "node apps/api/seeds/demo.js",
     "start": "node apps/api/src/server.js",
     "pretest": "node --env-file=.env.test apps/api/src/cli.js reset",
     "test": "node --env-file=.env.test --test --test-concurrency=1 apps/api/test/*.test.js",

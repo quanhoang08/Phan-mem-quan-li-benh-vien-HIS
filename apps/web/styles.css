@@ -249,3 +249,21 @@ dialog.modal h3{margin:0;font-size:17px}
 #rxlist{overflow-x:auto}#rxlist select.rxdrug{max-width:200px}#rxlist td input[type=number]{width:58px!important}
 #rxlist td,#rxlist th{padding-left:5px;padding-right:5px}#rxlist td input[type=number]{width:50px!important}#rxlist select.rxdrug{max-width:170px}#rxlist td input:not([type=number]){min-width:110px}
 #rxlist td input[type=number]{width:46px!important;min-width:0!important;padding-left:5px;padding-right:2px}#rxlist .d{padding:5px 9px}
+
+/* ---------- hiệu ứng bổ sung (tôn trọng prefers-reduced-motion ở trên) ---------- */
+/* nút chính: vệt sáng quét ngang khi rê chuột */
+button.p{position:relative;overflow:hidden}
+button.p::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,#ffffff55 50%,transparent 65%);transform:translateX(-120%);pointer-events:none}
+button.p:hover:not(:disabled)::after{transform:translateX(120%);transition:transform .7s var(--ease)}
+/* số thứ tự hiện ra kiểu nảy */
+.ticket,.bignum,.doc .big,.slip .big{animation:pop .55s var(--ease) both}
+@keyframes pop{0%{opacity:0;transform:scale(.6)}60%{transform:scale(1.08)}100%{opacity:1;transform:none}}
+/* diện ưu tiên: nhịp nhẹ để lễ tân không bỏ sót */
+.chip.warn[title="Ưu tiên khám"]{animation:glow 2.4s ease-in-out infinite}
+@keyframes glow{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--warn) 22%,transparent)}}
+/* menu: mục trượt nhẹ sang phải khi rê */
+#menu button:hover:not(.on){transform:translateX(3px)}
+/* hộp thoại và kết quả kiosk */
+dialog.modal[open]{animation:rise .3s var(--ease)}
+dialog.modal[open]::backdrop{animation:fade .3s ease}
+.box:not([hidden]){animation:rise .45s var(--ease) both}

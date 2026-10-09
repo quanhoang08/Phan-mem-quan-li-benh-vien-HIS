@@ -135,16 +135,18 @@ test('khoảng tham chiếu: chọn theo giới rồi dải tuổi hẹp nhất,
   assert.deepEqual(pickRanges(rows, 'MALE', 40).map(r => r.code), ['WBC', 'HGB']); // giữ thứ tự sort
 });
 
-test('BR-Q-1/2: ưu tiên theo tuổi rồi theo diện khai; người vắng xuống cuối, ưu tiên lên trước', () => {
-  assert.deepEqual([priorityOf(5, null), priorityOf(6, null), priorityOf(75, null), priorityOf(80, 'PREGNANT'), priorityOf(30, 'PREGNANT'), priorityOf(30, 'CHILD')],
-    ['CHILD', null, 'ELDERLY', 'ELDERLY', 'PREGNANT', null]); // CHILD/ELDERLY không khai tay được
+test('BR-Q-1/2: không tự đi lại được > từ 65 tuổi > dưới 1 tuổi > diện khác; người vắng xuống cuối', () => {
+  assert.deepEqual([priorityOf(0, null), priorityOf(1, null), priorityOf(64, null), priorityOf(65, null), priorityOf(80, 'DISABLED'), priorityOf(0, 'DISABLED'), priorityOf(30, 'PREGNANT'), priorityOf(30, 'CHILD')],
+    ['CHILD', null, null, 'ELDERLY', 'DISABLED', 'DISABLED', 'PREGNANT', null]); // CHILD/ELDERLY không khai tay được
   const q = [
     { id: 'a', registered_at: '2026-01-01T08:00:00Z' },
-    { id: 'b', registered_at: '2026-01-01T08:05:00Z', priority: 'ELDERLY' },
-    { id: 'c', registered_at: '2026-01-01T07:50:00Z', priority: 'CHILD', skipped_at: '2026-01-01T08:10:00Z' },
+    { id: 'b', registered_at: '2026-01-01T08:05:00Z', priority: 'CHILD' },
+    { id: 'c', registered_at: '2026-01-01T07:50:00Z', priority: 'DISABLED', skipped_at: '2026-01-01T08:10:00Z' },
     { id: 'd', registered_at: '2026-01-01T07:55:00Z' },
+    { id: 'e', registered_at: '2026-01-01T08:06:00Z', priority: 'ELDERLY' },
+    { id: 'f', registered_at: '2026-01-01T08:07:00Z', priority: 'DISABLED' },
   ];
-  assert.deepEqual([...q].sort(compareQueue).map(x => x.id), ['b', 'd', 'a', 'c']);
+  assert.deepEqual([...q].sort(compareQueue).map(x => x.id), ['f', 'e', 'b', 'd', 'a', 'c']);
 });
 
 test('BR-CONS-2: khám thêm chuyên khoa: lần 2–4 tính 30% giá khám, từ lần 5 hoặc không BHYT tính đủ', () => {

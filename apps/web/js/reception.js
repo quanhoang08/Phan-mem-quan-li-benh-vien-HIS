@@ -84,19 +84,20 @@ function renderReg() {
         <div><label for="exno">Số giấy</label><input id="exno"></div><div><label for="exfrom">Từ ngày</label><input id="exfrom" type="date" value="${t}"></div>
         <div><label for="exto">Đến ngày</label><input id="exto" type="date" value="${t.slice(0, 4)}-12-31"></div><button onclick="addExemption()">Lưu giấy</button></div>
         <small>BHXH cấp khi đủ 5 năm liên tục và số tiền cùng chi trả trong năm vượt 6 tháng lương cơ sở; hiệu lực đến hết 31/12. Khám đúng tuyến được BHYT chi trả 100%.</small></details></div>
-      <div class="card"><h3>3. Đăng ký khám</h3><div class="row"><div><label for="room">Phòng khám</label><select id="room">${CAT.rooms.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div>
+      <div class="card"><h3>3. Đăng ký khám</h3><div class="row"><div><label for="room">Phòng khám</label><select id="room">${CAT.rooms.map(r => `<option value="${r.id}"${RG.ticket_room === r.id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></div>
         <div style="flex:2"><label for="cc">Lý do khám</label><input id="cc"></div>
-        <div><label for="prio">Diện ưu tiên</label>${p.age < 6 || p.age >= 75 ? `<div style="padding:8px 0">${prioChip(p.age < 6 ? 'CHILD' : 'ELDERLY')}</div>`
-          : `<select id="prio"><option value="">Không</option>${['PREGNANT', 'DISABLED', 'MERIT'].map(k => `<option value="${k}">${PRIO[k]}</option>`).join('')}</select>`}</div>
+        <div><label for="prio">Diện ưu tiên</label>${p.age >= 65 || p.age < 1 ? `<div>${prioChip(p.age < 1 ? 'CHILD' : 'ELDERLY')}</div>` : ''}
+          <select id="prio"><option value="">Không</option>${['DISABLED', 'PREGNANT', 'MERIT'].map(k => `<option value="${k}"${RG.ticket_prio === k ? ' selected' : ''}>${PRIO[k]}</option>`).join('')}</select></div>
         <button class="p" id="registerBtn" onclick="register()">Đăng ký khám</button></div>
-        <small>Dưới 6 tuổi và từ 75 tuổi được ưu tiên tự động; diện khác cần đối chiếu giấy tờ.</small>
+        <small>Từ 65 tuổi và dưới 1 tuổi được ưu tiên tự động; "không tự đi lại được" và diện khác cần đối chiếu thực tế/giấy tờ. Thứ tự: không tự đi lại được, từ 65 tuổi, dưới 1 tuổi.</small>
         ${askRoute ? `<div class="banner warn" style="margin-top:12px">Thẻ đăng ký KCB ban đầu tại cơ sở ${esc(active.facility_code)}. Chọn tuyến khám, tự đến thì BHYT ngoại trú không chi trả.</div>
         <div class="row"><div><label for="route">Tuyến</label><select id="route" onchange="$('#refBox').hidden=this.value!=='REFERRAL'">${['SELF', 'REFERRAL', 'EMERGENCY'].map(k => `<option value="${k}">${ROUTE[k]}</option>`).join('')}</select></div>
           <div id="refBox" hidden><label for="refno">Số giấy chuyển tuyến / giấy hẹn</label><input id="refno"></div></div>` : ''}</div>`;
   }
-  if (g.mode === 'search' && g.tickets?.length) body = `<div class="card"><h3>Phiếu số lấy ở kiosk, chờ tiếp nhận <span class="chip info">${g.tickets.length}</span></h3><table><tr><th>Số</th><th>Bệnh nhân</th><th>CCCD</th><th>Thẻ BHYT</th><th></th></tr>
-    ${g.tickets.map(t => `<tr><td><b style="font-size:18px">${esc(t.label)}</b><br><small>${new Date(t.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</small></td><td><b>${esc(t.full_name)}</b></td><td>${esc(t.id_number)}</td>
-      <td>${esc(t.card_no)}<br><small>hạn đến ${new Date(t.card_valid_to).toLocaleDateString('vi-VN')}</small></td><td><button class="sm p" onclick="useTicket('${esc(t.id)}')">Tiếp nhận</button></td></tr>`).join('')}</table></div>`;
+  if (g.mode === 'search' && g.tickets?.length) body = `<div class="card"><h3>Phiếu số lấy ở kiosk, chờ tiếp nhận <span class="chip info">${g.tickets.length}</span></h3><table><tr><th>Số</th><th>Bệnh nhân</th><th>CCCD</th><th>Thẻ BHYT</th><th>Phòng dự kiến</th><th></th></tr>
+    ${g.tickets.map(t => `<tr><td><b style="font-size:18px">${esc(t.label)}</b><br><small>${new Date(t.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</small></td><td><b>${esc(t.full_name)}</b> ${prioChip(t.priority)}</td><td>${esc(t.id_number)}</td>
+      <td>${esc(t.card_no)}<br><small>hạn đến ${new Date(t.card_valid_to).toLocaleDateString('vi-VN')}</small></td>
+      <td><select aria-label="Phòng dự kiến ${esc(t.label)}" onchange="setTicketRoom('${esc(t.id)}', this.value)"><option value="">Chưa chọn</option>${CAT.rooms.map(r => `<option value="${r.id}"${t.room_id === r.id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></td><td><button class="sm p" onclick="useTicket('${esc(t.id)}')">Tiếp nhận</button></td></tr>`).join('')}</table></div>`;
   if (g.mode === 'search' && g.fu?.length) body = (body || '') + `<div class="card"><h3>Hẹn tái khám hôm nay <span class="chip info">${g.fu.length}</span></h3><table><tr><th>Bệnh nhân</th><th>Hẹn từ</th><th>Lời dặn</th><th></th></tr>
     ${g.fu.map(f => `<tr><td><b>${esc(f.full_name)}</b><br><small>${esc(f.patient_code)}</small></td><td>${esc(f.room_name)}<br><small>${esc(f.enc_code)}${f.doctor ? ' · ' + esc(f.doctor) : ''}</small></td><td>${esc(f.follow_up_note || '—')}</td>
       <td>${f.registered ? '<span class="chip ok">Đã đăng ký</span>' : `<button class="sm p" onclick="useFollowUp('${esc(f.id_type)}','${esc(f.id_number)}')">Tiếp đón</button>`}</td></tr>`).join('')}</table>
@@ -107,24 +108,25 @@ function renderReg() {
 const lookup = act(async () => {
   RG.idt = $('#idt')?.value ?? RG.idt; RG.idn = $('#idn')?.value.trim() ?? RG.idn;
   if (!RG.idn) return toast('Nhập số giấy tờ', true);
-  const { qr, ticket_id, ticket_label } = RG; // qr: thông tin đọc từ QR CCCD hoặc phiếu kiosk, dùng điền sẵn hồ sơ mới
+  const { qr, ticket_id, ticket_label, ticket_prio, ticket_room } = RG; // qr: thông tin đọc từ QR CCCD hoặc phiếu kiosk, dùng điền sẵn hồ sơ mới
   const r = await api('GET', `/patients/lookup?idType=${RG.idt}&idNumber=${encodeURIComponent(RG.idn)}`);
-  if (r.patient) RG = { idt: RG.idt, idn: RG.idn, mode: 'found', patient: r.patient, cards: r.cards, exemptions: r.exemptions, allergies: r.allergies, confirmed: RG.confirmed, ticket_id, ticket_label };
+  if (r.patient) RG = { idt: RG.idt, idn: RG.idn, mode: 'found', patient: r.patient, cards: r.cards, exemptions: r.exemptions, allergies: r.allergies, confirmed: RG.confirmed, ticket_id, ticket_label, ticket_prio, ticket_room };
   else { // không có hồ sơ: điền sẵn từ QR, nếu không có thì thử CSDL dân cư (giả lập)
     const id = qr || (RG.idt === 'CCCD' ? (await api('GET', `/identity/lookup?idNumber=${encodeURIComponent(RG.idn)}`)).citizen : null);
-    RG = { idt: RG.idt, idn: RG.idn, mode: 'new', ticket_id, ticket_label, prefill: id || {}, msg: qr ? 'Chưa có hồ sơ. Đã điền sẵn từ QR căn cước công dân, hãy kiểm tra lại với giấy tờ.' : id ? 'Chưa có hồ sơ. Đã điền sẵn từ CSDL dân cư (giả lập), hãy kiểm tra lại với giấy tờ.' : 'Chưa có hồ sơ với giấy tờ này, hãy nhập thông tin để tạo mới.' };
+    RG = { idt: RG.idt, idn: RG.idn, mode: 'new', ticket_id, ticket_label, ticket_prio, ticket_room, prefill: id || {}, msg: qr ? 'Chưa có hồ sơ. Đã điền sẵn từ QR căn cước công dân, hãy kiểm tra lại với giấy tờ.' : id ? 'Chưa có hồ sơ. Đã điền sẵn từ CSDL dân cư (giả lập), hãy kiểm tra lại với giấy tờ.' : 'Chưa có hồ sơ với giấy tờ này, hãy nhập thông tin để tạo mới.' };
   }
   renderReg();
 });
 const scanQr = act(async s => {
   const p = await api('POST', '/identity/parse-qr', { qr: s });
-  RG.idt = 'CCCD'; RG.idn = p.id_number; RG.qr = p; RG.ticket_id = RG.ticket_label = undefined;
+  RG.idt = 'CCCD'; RG.idn = p.id_number; RG.qr = p; RG.ticket_id = RG.ticket_label = RG.ticket_prio = RG.ticket_room = undefined;
   renderReg(); // lookup đọc số giấy tờ từ ô nhập
   await lookup();
 });
+const setTicketRoom = (id, room_id) => api('PATCH', '/tickets/' + id, { room_id }).then(() => { RG.tickets.find(x => x.id === id).room_id = room_id || null; toast('Đã lưu phòng dự kiến'); }).catch(e => toast(e.message, true));
 const useTicket = id => {
   const t = RG.tickets.find(x => x.id === id);
-  RG.idt = 'CCCD'; RG.idn = t.id_number; RG.ticket_id = t.id; RG.ticket_label = t.label; RG.qr = { full_name: t.full_name, dob: t.dob, sex: t.sex, address: t.address };
+  RG.idt = 'CCCD'; RG.idn = t.id_number; RG.ticket_id = t.id; RG.ticket_label = t.label; RG.ticket_prio = t.priority; RG.ticket_room = t.room_id; RG.qr = { full_name: t.full_name, dob: t.dob, sex: t.sex, address: t.address };
   renderReg();
   lookup();
 };

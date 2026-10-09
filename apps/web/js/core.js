@@ -10,7 +10,7 @@ const ST = { REGISTERED: 'Chờ khám', IN_EXAM: 'Đang khám', WAITING_SERVICES
 const STC = { REGISTERED: 'mute', IN_EXAM: 'info', RESULTS_READY: 'info', WAITING_PAYMENT: 'warn', COMPLETED: 'ok', CANCELLED: 'bad' };
 const chip = s => `<span class="chip ${STC[s] || ''}">${ST[s] || esc(s)}</span>`;
 const SEX = { MALE: 'Nam', FEMALE: 'Nữ' };
-const PRIO = { CHILD: 'Trẻ dưới 6 tuổi', ELDERLY: 'Từ 75 tuổi', PREGNANT: 'Phụ nữ có thai', DISABLED: 'Khuyết tật nặng', MERIT: 'Người có công' };
+const PRIO = { CHILD: 'Trẻ dưới 1 tuổi', ELDERLY: 'Từ 65 tuổi', PREGNANT: 'Phụ nữ có thai', DISABLED: 'Không tự đi lại được', MERIT: 'Người có công' };
 const prioChip = p => p ? `<span class="chip warn" title="Ưu tiên khám">★ ${PRIO[p]}</span>` : '';
 const ROLE = { RECEPTION: 'Lễ tân', DOCTOR: 'Bác sĩ', LAB_TECH: 'KTV', PHARMACIST: 'Dược sĩ', CASHIER: 'Thu ngân', MANAGER: 'Quản lý', ADMIN: 'Quản trị' };
 const ALLERGY_CLASSES = ['PENICILLIN', 'NSAID', 'SULFA', 'CEPHALOSPORIN', 'MACROLIDE'];

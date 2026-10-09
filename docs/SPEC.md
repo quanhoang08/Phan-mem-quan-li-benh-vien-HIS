@@ -364,7 +364,10 @@ Chuỗi QR: `số CCCD|số CMND cũ|họ tên|ddmmyyyy|giới tính|địa ch�
 - Phiếu số chưa phải lượt khám. Lễ tân chọn phiếu ở màn Đăng ký khám (hoặc quét QR CCCD để điền sẵn hồ sơ), đăng ký bình thường kèm `ticket_id`; phiếu chuyển `RECEIVED` trong cùng giao dịch với `REGISTER`.
 - Route: `POST /kiosk/check`, `POST /kiosk/tickets` (công khai), `GET /tickets`, `POST /identity/parse-qr` (lễ tân). Dược và thu ngân tìm bằng ô "Mã y tế" (mã bệnh nhân hoặc mã lượt khám) trên danh sách chờ hiện có.
 - BR-KIOSK-3: `/kiosk/*` giới hạn `PUBLIC_RATE_LIMIT` lệnh/phút/IP (mặc định 30, 0 = tắt), vượt thì 429 `RATE_LIMITED`. Bộ đếm nằm trong bộ nhớ một tiến trình.
-- Chưa làm: kiểm tra QR có khớp người đứng quét. QR in trên thẻ chỉ là chuỗi tĩnh, ai có ảnh thẻ đều giả lập được; cần yếu tố khác (đọc chip NFC, đối chiếu khuôn mặt, OTP số điện thoại) qua cổng định danh.
+- BR-KIOSK-4: xác minh chủ thẻ bằng OTP (`POST /kiosk/otp` rồi `POST /kiosk/tickets` kèm `otp`). Chỉ gửi mã khi thẻ BHYT còn hiệu lực. Mã 6 số qua `otpGateway` (integrations/identity.js), dùng một lần, hiệu lực 5 phút, sai 3 lần thì hủy; lỗi 403 `OTP_INVALID` / `OTP_EXPIRED`. Bản mock trả `dev_code` để kiosk demo hiển thị; cổng thật gửi SMS/VNeID và không trả mã. Bộ nhớ OTP nằm trong một tiến trình.
+- BR-KIOSK-5: phiếu mang diện ưu tiên (`ticket.priority`): tuổi do server tính từ QR, "không thể tự đi lại được" do người bệnh tích ở kiosk, lễ tân đối chiếu thực tế khi tiếp nhận (ô Diện ưu tiên được chọn sẵn). `GET /tickets` xếp theo thứ hạng ưu tiên rồi số phiếu. 
+- BR-KIOSK-6: phòng khám dự kiến do nhân viên tiếp đón gán (`PATCH /tickets/:id` `{room_id}`, audit `TICKET_ASSIGN_ROOM`) sau khi hỏi nhu cầu khám; kiosk không tự chọn. Lúc tiếp nhận phòng được chọn sẵn, vẫn đổi được.
+- Phiếu in lấy ngày giờ từ trình duyệt kiosk.
 
 ## 5. Mô hình dữ liệu
 
@@ -743,8 +746,8 @@ Mỗi quy tắc cần ít nhất một test.
 - `BR-ENC-1` Một bệnh nhân không có hai lượt khám đang mở cùng phòng cùng ngày, trừ khi lễ tân xác nhận kèm lý do.
 - `BR-ENC-2` Chuyển trạng thái chỉ qua máy trạng thái. Chuyển sai trả `409 ENCOUNTER_STATE_INVALID`.
 - `BR-ENC-3` Mọi lệnh ghi lên lượt khám dùng khóa lạc quan (`version`). Hai người sửa cùng lúc thì người sau nhận `409 VERSION_CONFLICT`.
-- `BR-Q-1` Diện ưu tiên chụp lúc đăng ký: dưới 6 tuổi là `CHILD`, từ 75 tuổi là `ELDERLY` (server tự tính, client không khai được hai diện này); ngoài ra lễ tân chọn `PREGNANT`, `DISABLED`, `MERIT` sau khi đối chiếu giấy tờ. Đối chiếu Luật KCB 2023 Điều 50 trước khi trình bày như quy định thật.
-- `BR-Q-2` Thứ tự hàng đợi (`GET /encounters`): người đã đánh vắng xuống cuối; trong mỗi nhóm, người ưu tiên trước; cùng nhóm thì ai đăng ký trước vào trước.
+- `BR-Q-1` Diện ưu tiên chụp lúc đăng ký: thứ hạng 1 `DISABLED` (không thể tự đi lại được, khai và lễ tân đối chiếu), 2 `ELDERLY` (từ 65 tuổi), 3 `CHILD` (dưới 1 tuổi); hai diện tuổi server tự tính, client không khai được. `PREGNANT`, `MERIT` vẫn do lễ tân chọn, xếp sau ba diện trên. Đối chiếu Luật KCB 2023 Điều 50 trước khi trình bày như quy định thật.
+- `BR-Q-2` Thứ tự hàng đợi (`GET /encounters`): người đã đánh vắng xuống cuối; trong mỗi nhóm, theo thứ hạng ưu tiên (`rankOf`); cùng nhóm thì ai đăng ký trước vào trước.
 - `BR-Q-3` Chỉ đánh vắng (`POST /encounters/{id}/skip`) bệnh nhân `REGISTERED` đã gọi ít nhất 3 lần (`409 NOT_CALLED_ENOUGH`). Như gọi số: không đổi trạng thái, không tăng `version`, ghi `SKIP`. Vẫn gọi lại và khám được.
 - `BR-ENC-5` Chuyển phòng (`POST /encounters/{id}/transfer`) chỉ khi `REGISTERED`, có lý do, phòng đích khác phòng hiện tại và không vi phạm `BR-ENC-1`. Cấp số mới ở phòng đích, xóa mốc gọi số và đánh vắng, **giữ `registered_at`** để người bệnh không phải chờ lại từ đầu. Không đổi trạng thái, có tăng `version`, ghi `TRANSFER_ROOM`.
 - `BR-Q-4` Chốt ngày (`POST /queue/close-day`, lễ tân, bắt buộc gửi `date` không sau hôm nay): mọi lượt `REGISTERED` của ngày đó bị hủy qua máy trạng thái với lý do "Vắng mặt, tự hủy khi chốt ngày"; ghi `CANCEL` từng lượt và một dòng `CLOSE_DAY`.

@@ -19,12 +19,15 @@ let label;
 test('kiosk: thẻ hết hạn được hướng dẫn khám dịch vụ/mua BHYT, thẻ còn hạn nhận số', async ({ page }) => {
   await page.goto('/kiosk.html');
   await page.getByText('Dữ liệu thử (giả lập)').click();
-  await page.getByRole('button', { name: 'Thẻ hết hạn' }).click();
+  await page.getByRole('button', { name: 'Thẻ hết hạn' }).click(); // thẻ hết hạn: không gửi OTP
   await expect(page.locator('#res')).toContainText('khám dịch vụ hoặc đi mua bảo hiểm y tế rồi quay lại sau');
   await expect(page.locator('#res .ticket')).toHaveCount(0);
 
   await page.getByLabel('Mã QR căn cước công dân').fill(qrOf('001960000014', 'Ngô Văn Khánh', '10101960'));
   await page.getByLabel('Mã QR căn cước công dân').press('Enter');
+  const hint = await page.locator('#otpHint').textContent(); // OTP giả hiển thị trên kiosk demo
+  await page.getByLabel('Mã OTP (6 số)').fill(hint.match(/\d{6}/)[0]);
+  await page.getByRole('button', { name: 'Xác nhận' }).click();
   await expect(page.locator('#res .ticket')).toHaveText(/^A\d{3}$/);
   await expect(page.locator('#res')).toContainText('Thẻ BHYT còn hiệu lực đến');
 });

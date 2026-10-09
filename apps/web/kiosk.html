@@ -26,7 +26,15 @@ main h1{margin:0 0 4px;font-size:28px}
     <label for="qr" class="mut">Mã QR căn cước công dân</label>
     <input id="qr" autofocus autocomplete="off" placeholder="Quét mã QR hoặc dán chuỗi QR rồi nhấn Enter">
     <div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="p" id="go">Lấy số</button><button id="camBtn">Dùng camera</button></div>
+    <label style="display:block;margin-top:12px;font-size:17px"><input type="checkbox" id="cw"> Tôi không thể tự đi lại được (cần người đẩy xe/đỡ)</label>
     <div id="cam" hidden style="margin-top:12px"><video playsinline muted></video></div>
+  </div>
+  <div class="box" id="otpBox" hidden>
+    <b>Xác minh chủ thẻ</b>
+    <p class="mut">Mã OTP đã gửi đến số điện thoại đăng ký với căn cước công dân. <span id="otpHint"></span></p>
+    <label for="otp" class="mut">Mã OTP (6 số)</label>
+    <input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="font-size:24px;text-align:center;letter-spacing:6px;padding:10px">
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="p" id="otpGo">Xác nhận</button><button id="otpCancel">Hủy</button></div>
   </div>
   <div class="box" id="res" hidden aria-live="polite"></div>
   <details style="margin-top:18px"><summary class="mut">Dữ liệu thử (giả lập)</summary><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px" id="demo"></div></details>
@@ -46,19 +54,36 @@ $('#demo').onclick = e => { const s = SAMPLE[e.target.dataset.i]; if (s) submit(
 function show(cls, html) { const r = $('#res'); r.hidden = false; r.innerHTML = `<div class="banner ${cls}">${html}</div>`; clearTimeout(reset); reset = setTimeout(clear, 20000); }
 function clear() { $('#res').hidden = true; $('#qr').value = ''; $('#qr').focus(); }
 
+const post = async (path, body) => { const r = await fetch('/api/v1' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return { r, j: await r.json() }; };
+const PRIO_VI = { DISABLED: 'Ưu tiên 1: không tự đi lại được', ELDERLY: 'Ưu tiên 2: từ 65 tuổi', CHILD: 'Ưu tiên 3: trẻ dưới 1 tuổi' };
+let pendingQr;
+
+// Bước 1: quét QR -> gửi OTP tới chủ thẻ. Bước 2: nhập OTP -> cấp số.
 async function submit(qr) {
   stopCam();
   qr = qr.trim();
   if (!qr) return;
   try {
-    const r = await fetch('/api/v1/kiosk/tickets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ qr }) });
-    const j = await r.json();
-    if (r.ok) {
-      show('ok', `<div style="text-align:center"><div>Số thứ tự của bạn</div><div class="ticket">${esc(j.label)}</div><b>${esc(j.citizen.full_name)}</b><br>
-        Thẻ BHYT còn hiệu lực đến ${esc(dmy(j.insurance.valid_to))}${j.reused ? '<br>(Bạn đã lấy số hôm nay, đây là số đang chờ)' : ''}<br>Vui lòng đến quầy tiếp nhận khi được gọi số.<br><br><button onclick="window.print()">In phiếu số</button></div>`);
-      $('#slip').innerHTML = `<div style="text-align:center"><b>BỆNH VIỆN ĐA KHOA HIS MINI</b><h1>PHIẾU SỐ THỨ TỰ</h1><div style="font-size:72px;font-weight:800">${esc(j.label)}</div>${esc(j.citizen.full_name)}<br>${new Date().toLocaleString('vi-VN')}</div>`;    } else show(r.status === 409 ? 'warn' : 'bad', `<b>${r.status === 409 ? 'Không thể cấp số' : 'Lỗi'}</b><br>${esc(j.message)}`);
+    const { r, j } = await post('/kiosk/otp', { qr });
+    if (!r.ok) return show(r.status === 409 ? 'warn' : 'bad', `<b>${r.status === 409 ? 'Không thể cấp số' : 'Lỗi'}</b><br>${esc(j.message)}`);
+    pendingQr = qr; $('#res').hidden = true; $('#otpBox').hidden = false; $('#otp').value = ''; $('#otp').focus();
+    $('#otpHint').textContent = j.dev_code ? `(Giả lập: mã là ${j.dev_code})` : '';
   } catch { show('bad', 'Không kết nối được máy chủ. Vui lòng đến quầy tiếp nhận.'); }
   $('#qr').value = '';
+}
+function cancelOtp() { pendingQr = null; $('#otpBox').hidden = true; clear(); }
+async function confirmOtp() {
+  try {
+    const { r, j } = await post('/kiosk/tickets', { qr: pendingQr, otp: $('#otp').value, cannot_walk: $('#cw').checked });
+    if (r.status === 403 && j.code === 'OTP_INVALID') { $('#otp').value = ''; $('#otp').focus(); return show('bad', esc(j.message) + '. Vui lòng nhập lại.'); }
+    $('#otpBox').hidden = true; pendingQr = null;
+    if (r.ok) {
+      const pr = j.priority ? `<br><b>★ ${esc(PRIO_VI[j.priority] ?? 'Ưu tiên')}</b>` : '';
+      show('ok', `<div style="text-align:center"><div>Số thứ tự của bạn</div><div class="ticket">${esc(j.label)}</div><b>${esc(j.citizen.full_name)}</b>${pr}<br>
+        Thẻ BHYT còn hiệu lực đến ${esc(dmy(j.insurance.valid_to))}${j.reused ? '<br>(Bạn đã lấy số hôm nay, đây là số đang chờ)' : ''}<br>Vui lòng đến quầy tiếp nhận khi được gọi số.<br><br><button onclick="window.print()">In phiếu số</button></div>`);
+      $('#slip').innerHTML = `<div style="text-align:center"><b>BỆNH VIỆN ĐA KHOA HIS MINI</b><h1>PHIẾU SỐ THỨ TỰ</h1><div style="font-size:72px;font-weight:800">${esc(j.label)}</div>${esc(j.citizen.full_name)}${pr}<br>${new Date().toLocaleString('vi-VN')}</div>`;
+    } else show(r.status === 409 ? 'warn' : 'bad', `<b>${r.status === 409 ? 'Không thể cấp số' : 'Lỗi'}</b><br>${esc(j.message)}`);
+  } catch { show('bad', 'Không kết nối được máy chủ. Vui lòng đến quầy tiếp nhận.'); }
 }
 
 async function startCam() {
@@ -77,6 +102,9 @@ async function startCam() {
 function stopCam() { stream?.getTracks().forEach(t => t.stop()); stream = null; $('#cam').hidden = true; }
 
 $('#qr').onkeydown = e => { if (e.key === 'Enter') submit(e.target.value); };
+$('#otp').onkeydown = e => { if (e.key === 'Enter') confirmOtp(); };
+$('#otpGo').onclick = confirmOtp;
+$('#otpCancel').onclick = cancelOtp;
 $('#go').onclick = () => submit($('#qr').value);
 $('#camBtn').onclick = () => (stream ? stopCam() : startCam());
 </script>

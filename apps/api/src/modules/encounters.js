@@ -137,6 +137,12 @@ route('POST', '/encounters', [R], async c => {
   if (!p) throw notFound('bệnh nhân');
   const room = await c.db.one('SELECT * FROM room WHERE id=$1', b.room_id);
   if (!room) throw notFound('phòng');
+  if (b.ticket_id) { // phiếu kiosk phải đúng người: so số CCCD của phiếu với hồ sơ đang đăng ký
+    const t = await c.db.one('SELECT id_number, status FROM ticket WHERE id=$1 FOR UPDATE', b.ticket_id);
+    if (!t) throw notFound('phiếu');
+    if (t.status !== 'ISSUED') throw new AppError(409, 'TICKET_USED', 'Phiếu đã được tiếp nhận');
+    if (p.id_type !== 'CCCD' || p.id_number !== t.id_number) throw new AppError(409, 'TICKET_MISMATCH', 'Phiếu kiosk không thuộc về bệnh nhân này');
+  }
 
   const dup = await c.db.one("SELECT code FROM encounter WHERE patient_id=$1 AND room_id=$2 AND queue_date=$3 AND status NOT IN ('COMPLETED','CANCELLED') LIMIT 1", p.id, room.id, d);
   if (dup && !(b.confirm_duplicate && b.reason)) // BR-ENC-1

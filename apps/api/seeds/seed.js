@@ -39,9 +39,46 @@ const seedAnalytes = async q => { // tuần tự: một client pg không chạy 
 
 const isoDays = n => new Date(Date.now() + n * 864e5).toLocaleDateString('sv');
 
+// Bệnh nhân mẫu bổ sung (chỉ dữ liệu giả): đủ độ tuổi để thấy ưu tiên (dưới 1 tuổi, từ 65), thẻ các mức, hết hạn, dị ứng. Thêm được cả khi CSDL đã có dữ liệu.
+const extraPatients = Y => [
+  ['CCCD', '001958000022', 'Nguyễn Văn Bình', '1958-03-15', 'MALE', 100], ['CCCD', '001955000023', 'Trần Thị Cúc', '1955-07-22', 'FEMALE', 100, 'PENICILLIN'],
+  ['CCCD', '001951000024', 'Lê Văn Đức', '1951-12-05', 'MALE', 95], ['CCCD', '001945000025', 'Phạm Thị Giàu', '1945-09-09', 'FEMALE', 100],
+  ['CCCD', '001961000026', 'Hoàng Văn Hải', `${Y - 65}-01-01`, 'MALE', 95], ['CCCD', '001962000027', 'Vũ Thị Kim', `${Y - 64}-06-30`, 'FEMALE', 80],
+  ['BIRTH_CERT', `KS${Y}-0028`, 'Nguyễn Minh Khôi', `${Y}-01-05`, 'MALE', 100], ['BIRTH_CERT', `KS${Y}-0029`, 'Trần Khánh An', `${Y}-02-11`, 'FEMALE', null],
+  ['BIRTH_CERT', `KS${Y - 1}-0030`, 'Lê Bảo Châu', `${Y - 1}-10-20`, 'FEMALE', 100], ['BIRTH_CERT', `KS${Y - 3}-0031`, 'Phạm Gia Huy', `${Y - 3}-05-17`, 'MALE', 100],
+  ['CCCD', '001996000032', 'Đặng Thị Lệ', '1996-04-04', 'FEMALE', 80], ['CCCD', '001989000033', 'Bùi Văn Mạnh', '1989-08-18', 'MALE', 95, 'NSAID'],
+  ['CCCD', '001993000034', 'Ngô Thị Nhung', '1993-11-27', 'FEMALE', null], ['CCCD', '001984000035', 'Đỗ Văn Phát', '1984-02-02', 'MALE', 80],
+  ['CCCD', '001972000036', 'Dương Thị Quỳnh', '1972-06-16', 'FEMALE', 'expired'], ['CCCD', '001968000037', 'Lý Văn Rạng', '1968-10-30', 'MALE', 100, 'SULFA'],
+  ['CCCD', '002001000038', 'Trương Thị Sương', '2001-01-23', 'FEMALE', 80], ['CCCD', '001997000039', 'Phan Văn Tùng', '1997-09-01', 'MALE', null],
+  ['CCCD', '001979000040', 'Võ Thị Uyên', '1979-12-12', 'FEMALE', 95], ['CCCD', '001986000041', 'Mai Văn Vinh', '1986-07-07', 'MALE', 80],
+  ['PASSPORT', 'P7654321', 'Maria Garcia', '1990-03-03', 'FEMALE', null],
+];
+async function seedPatients(q, list, Y) {
+  let n = 0;
+  for (const [idType, idNo, name, dob, sex, card, allergy] of list) {
+    const { rows: [p] } = await q('INSERT INTO patient(id_type,id_number,full_name,full_name_norm,dob,sex,phone) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id_type,id_number) DO NOTHING RETURNING id, code',
+      idType, idNo, name, normalizeName(name), dob, sex, '09' + idNo.replace(/\D/g, '').slice(-8).padStart(8, '0'));
+    if (!p) continue;
+    n++;
+    if (allergy) await q('INSERT INTO patient_allergy(patient_id,drug_class) VALUES ($1,$2)', p.id, allergy);
+    if (card) {
+      // số thẻ: mã đối tượng + mức hưởng + mã tỉnh (01) + 10 số; trẻ em dưới 6 tuổi dùng TE1
+      const exp = card === 'expired', pre = idType === 'BIRTH_CERT' ? 'TE1' : { 100: 'CB2', 95: 'HT3', 80: 'DN4' }[exp ? 80 : card];
+      const no = pre + '01' + p.code.slice(2).padStart(10, '0');
+      const facility = idNo === '001999000015' ? '79001' : '01001'; // BN00015 đăng ký KCB ban đầu nơi khác: minh họa chọn tuyến
+      await q("INSERT INTO insurance_card(patient_id,card_no,benefit_rate,facility_code,valid_from,valid_to,verify_source) VALUES ($1,$2,$3,$4,$5,$6,'SEED')",
+        p.id, no, benefitRateOf(no), facility, exp ? `${Y - 1}-01-01` : `${Y}-01-01`, exp ? `${Y - 1}-12-31` : `${Y}-12-31`);
+    }
+  }
+  return n;
+}
+
 export async function seed(client) {
   const q = (sql, ...p) => client.query(sql, p);
-  if ((await q('SELECT 1 FROM app_user LIMIT 1')).rowCount) { await seedAnalytes(q); await seedInteractions(q); return 'Đã có dữ liệu, chỉ bổ sung danh mục chỉ số xét nghiệm và tương tác thuốc'; }
+  if ((await q('SELECT 1 FROM app_user LIMIT 1')).rowCount) {
+    await seedAnalytes(q); await seedInteractions(q);
+    return `Đã có dữ liệu, chỉ bổ sung danh mục chỉ số xét nghiệm, tương tác thuốc và ${await seedPatients(q, extraPatients(new Date().getFullYear()), new Date().getFullYear())} bệnh nhân mẫu mới`;
+  }
   const Y = new Date().getFullYear();
   // 20 bệnh nhân giả với đủ tình huống: có/không BHYT, thẻ hết hạn, dị ứng, trẻ em giấy khai sinh, hộ chiếu, hai hồ sơ trùng họ tên + ngày sinh
   const PATIENTS = [
@@ -75,19 +112,8 @@ export async function seed(client) {
   }
   await seedAnalytes(q);
   await seedInteractions(q);
-  for (const [idType, idNo, name, dob, sex, card, allergy] of PATIENTS) {
-    const { rows: [p] } = await q('INSERT INTO patient(id_type,id_number,full_name,full_name_norm,dob,sex,phone) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, code',
-      idType, idNo, name, normalizeName(name), dob, sex, '09' + idNo.replace(/\D/g, '').slice(-8).padStart(8, '0'));
-    if (allergy) await q('INSERT INTO patient_allergy(patient_id,drug_class) VALUES ($1,$2)', p.id, allergy);
-    if (card) {
-      // số thẻ: mã đối tượng + mức hưởng + mã tỉnh (01) + 10 số; trẻ em dưới 6 tuổi dùng TE1
-      const exp = card === 'expired', pre = idType === 'BIRTH_CERT' ? 'TE1' : { 100: 'CB2', 95: 'HT3', 80: 'DN4' }[exp ? 80 : card];
-      const no = pre + '01' + p.code.slice(2).padStart(10, '0');
-      const facility = idNo === '001999000015' ? '79001' : '01001'; // BN00015 đăng ký KCB ban đầu nơi khác: minh họa chọn tuyến
-      await q("INSERT INTO insurance_card(patient_id,card_no,benefit_rate,facility_code,valid_from,valid_to,verify_source) VALUES ($1,$2,$3,$4,$5,$6,'SEED')",
-        p.id, no, benefitRateOf(no), facility, exp ? `${Y - 1}-01-01` : `${Y}-01-01`, exp ? `${Y - 1}-12-31` : `${Y}-12-31`);
-    }
-  }
+  PATIENTS.push(...extraPatients(Y));
+  await seedPatients(q, PATIENTS, Y);
   return `Seed xong: ${USERS.length} tài khoản, ${ROOMS.length} phòng, ${ICD.length} ICD-10, ${SERVICES.length} dịch vụ, ${DRUGS.length} thuốc, ${PATIENTS.length} bệnh nhân`;
 }
 
