@@ -25,6 +25,7 @@ test('kiosk: thẻ hết hạn được hướng dẫn khám dịch vụ/mua BHY
 
   await page.getByLabel('Mã QR căn cước công dân').fill(qrOf('001960000014', 'Ngô Văn Khánh', '10101960'));
   await page.getByLabel('Mã QR căn cước công dân').press('Enter');
+  await expect(page.locator('#otpHint')).toContainText(/\d{6}/); // chờ OTP về rồi mới đọc
   const hint = await page.locator('#otpHint').textContent(); // OTP giả hiển thị trên kiosk demo
   await page.getByLabel('Mã OTP (6 số)').fill(hint.match(/\d{6}/)[0]);
   await page.getByRole('button', { name: 'Xác nhận' }).click();
