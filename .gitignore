@@ -26,3 +26,6 @@ Thumbs.db
 # công cụ
 graphify-out/
 .claude/
+
+# báo cáo Word (không đẩy lên git)
+*.docx
