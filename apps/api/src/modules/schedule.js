@@ -7,7 +7,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // BR-SCH-1: các buổi làm việc trong khoảng ngày, kèm bác sĩ, ngày nghỉ và số chỗ đã đặt (booked). Dùng chung với cổng bệnh nhân.
 export const scheduleRows = (db, from, days) => db.all(`SELECT d::date::text AS day, s.id session_id, s.room_id, r.code room_code, r.name room_name, s.doctor_id, u.full_name doctor_name, s.shift, s.capacity,
-      o.id off_id, o.reason off_reason
+      o.id off_id, o.reason off_reason,
+      (SELECT count(*)::int FROM appointment a WHERE a.session_id = s.id AND a.day = d::date AND a.status <> 'CANCELLED') booked
     FROM generate_series($1::date, $1::date + ($2::int - 1), interval '1 day') d
     JOIN schedule_session s ON s.weekday = extract(isodow FROM d) AND s.active
     JOIN room r ON r.id = s.room_id JOIN app_user u ON u.id = s.doctor_id

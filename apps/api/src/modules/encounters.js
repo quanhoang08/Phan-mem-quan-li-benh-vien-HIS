@@ -143,6 +143,14 @@ route('POST', '/encounters', [R], async c => {
     if (t.status !== 'ISSUED') throw new AppError(409, 'TICKET_USED', 'Phiếu đã được tiếp nhận');
     if (p.id_type !== 'CCCD' || p.id_number !== t.id_number) throw new AppError(409, 'TICKET_MISMATCH', 'Phiếu kiosk không thuộc về bệnh nhân này');
   }
+  let appt = null; // BR-APPT-5: tiếp nhận người có lịch hẹn đúng ngày thì chuyển lịch sang ARRIVED
+  if (b.appointment_id) {
+    appt = await c.db.one('SELECT id, patient_id, day, status FROM appointment WHERE id=$1 FOR UPDATE', b.appointment_id);
+    if (!appt) throw notFound('lịch hẹn');
+    if (appt.status !== 'BOOKED') throw new AppError(409, 'APPT_USED', 'Lịch hẹn không còn ở trạng thái chờ khám');
+    if (appt.patient_id !== p.id) throw new AppError(409, 'APPT_MISMATCH', 'Lịch hẹn không thuộc về bệnh nhân này');
+    if (appt.day !== d) throw new AppError(409, 'APPT_NOT_TODAY', 'Chỉ tiếp nhận lịch hẹn vào đúng ngày hẹn');
+  }
 
   const dup = await c.db.one("SELECT code FROM encounter WHERE patient_id=$1 AND room_id=$2 AND queue_date=$3 AND status NOT IN ('COMPLETED','CANCELLED') LIMIT 1", p.id, room.id, d);
   if (dup && !(b.confirm_duplicate && b.reason)) // BR-ENC-1
@@ -179,7 +187,8 @@ route('POST', '/encounters', [R], async c => {
     ex?.id ?? null, exam.price, exam.insurance_covered);
   await c.db.run('INSERT INTO encounter_status_history(encounter_id,from_status,to_status,actor_id) VALUES ($1,NULL,$2,$3)', e.id, 'REGISTERED', c.user.id);
   if (b.ticket_id) await c.db.run("UPDATE ticket SET status='RECEIVED', encounter_id=$1 WHERE id=$2 AND status='ISSUED'", e.id, b.ticket_id); // phiếu lấy số ở kiosk đã được tiếp nhận
-  await c.audit('REGISTER', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id, detail: { duplicate_override: dup ? b.reason : undefined, route: routeType ?? undefined, priority: priority ?? undefined, copay_exempt: ex ? true : undefined } });
+  if (appt) await c.db.run("UPDATE appointment SET status='ARRIVED', encounter_id=$1 WHERE id=$2", e.id, appt.id);
+  await c.audit('REGISTER', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id, detail: { appointment_id: appt?.id, duplicate_override: dup ? b.reason : undefined, route: routeType ?? undefined, priority: priority ?? undefined, copay_exempt: ex ? true : undefined } });
   c.emit('EncounterRegistered', { encounter_id: e.id });
   c.status = 201;
   return { id: e.id, code, label: `${room.code}-${pad(no, 3)}`, benefit_rate: rate, route: routeType, priority, warning, copay_exempt: !!ex, exam_prepay: rate === 0 ? exam.price : null };
@@ -245,8 +254,9 @@ route('POST', '/queue/close-day', [R], async c => {
     await c.audit('CANCEL', 'encounter', e.id, { patient_id: e.patient_id, encounter_id: e.id, detail: { reason: NO_SHOW, close_day: d } });
     n++;
   }
-  await c.audit('CLOSE_DAY', 'queue', d, { detail: { cancelled: n } });
-  return { date: d, cancelled: n };
+  const noShow = (await c.db.run("UPDATE appointment SET status='NO_SHOW' WHERE day=$1 AND status='BOOKED'", d)).rowCount; // BR-APPT-6: hẹn mà không đến
+  await c.audit('CLOSE_DAY', 'queue', d, { detail: { cancelled: n, appointments_no_show: noShow } });
+  return { date: d, cancelled: n, appointments_no_show: noShow };
 });
 
 route('POST', '/encounters/:id/start', [D], async c => {

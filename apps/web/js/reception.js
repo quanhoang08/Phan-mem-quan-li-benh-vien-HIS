@@ -108,25 +108,25 @@ function renderReg() {
 const lookup = act(async () => {
   RG.idt = $('#idt')?.value ?? RG.idt; RG.idn = $('#idn')?.value.trim() ?? RG.idn;
   if (!RG.idn) return toast('Nhập số giấy tờ', true);
-  const { qr, ticket_id, ticket_label, ticket_prio, ticket_room } = RG; // qr: thông tin đọc từ QR CCCD hoặc phiếu kiosk, dùng điền sẵn hồ sơ mới
+  const { qr, ticket_id, ticket_label, ticket_prio, ticket_room, appt_id } = RG; // qr: thông tin đọc từ QR CCCD hoặc phiếu kiosk, dùng điền sẵn hồ sơ mới
   const r = await api('GET', `/patients/lookup?idType=${RG.idt}&idNumber=${encodeURIComponent(RG.idn)}`);
-  if (r.patient) RG = { idt: RG.idt, idn: RG.idn, mode: 'found', patient: r.patient, cards: r.cards, exemptions: r.exemptions, allergies: r.allergies, confirmed: RG.confirmed, ticket_id, ticket_label, ticket_prio, ticket_room };
+  if (r.patient) RG = { idt: RG.idt, idn: RG.idn, mode: 'found', patient: r.patient, cards: r.cards, exemptions: r.exemptions, allergies: r.allergies, confirmed: RG.confirmed, ticket_id, ticket_label, ticket_prio, ticket_room, appt_id };
   else { // không có hồ sơ: điền sẵn từ QR, nếu không có thì thử CSDL dân cư (giả lập)
     const id = qr || (RG.idt === 'CCCD' ? (await api('GET', `/identity/lookup?idNumber=${encodeURIComponent(RG.idn)}`)).citizen : null);
-    RG = { idt: RG.idt, idn: RG.idn, mode: 'new', ticket_id, ticket_label, ticket_prio, ticket_room, prefill: id || {}, msg: qr ? 'Chưa có hồ sơ. Đã điền sẵn từ QR căn cước công dân, hãy kiểm tra lại với giấy tờ.' : id ? 'Chưa có hồ sơ. Đã điền sẵn từ CSDL dân cư (giả lập), hãy kiểm tra lại với giấy tờ.' : 'Chưa có hồ sơ với giấy tờ này, hãy nhập thông tin để tạo mới.' };
+    RG = { idt: RG.idt, idn: RG.idn, mode: 'new', ticket_id, ticket_label, ticket_prio, ticket_room, appt_id, prefill: id || {}, msg: qr ? 'Chưa có hồ sơ. Đã điền sẵn từ QR căn cước công dân, hãy kiểm tra lại với giấy tờ.' : id ? 'Chưa có hồ sơ. Đã điền sẵn từ CSDL dân cư (giả lập), hãy kiểm tra lại với giấy tờ.' : 'Chưa có hồ sơ với giấy tờ này, hãy nhập thông tin để tạo mới.' };
   }
   renderReg();
 });
 const scanQr = act(async s => {
   const p = await api('POST', '/identity/parse-qr', { qr: s });
-  RG.idt = 'CCCD'; RG.idn = p.id_number; RG.qr = p; RG.ticket_id = RG.ticket_label = RG.ticket_prio = RG.ticket_room = undefined;
+  RG.idt = 'CCCD'; RG.idn = p.id_number; RG.qr = p; RG.ticket_id = RG.ticket_label = RG.ticket_prio = RG.ticket_room = RG.appt_id = undefined;
   renderReg(); // lookup đọc số giấy tờ từ ô nhập
   await lookup();
 });
 const setTicketRoom = (id, room_id) => api('PATCH', '/tickets/' + id, { room_id }).then(() => { RG.tickets.find(x => x.id === id).room_id = room_id || null; toast('Đã lưu phòng dự kiến'); }).catch(e => toast(e.message, true));
 const useTicket = id => {
   const t = RG.tickets.find(x => x.id === id);
-  RG.idt = 'CCCD'; RG.idn = t.id_number; RG.ticket_id = t.id; RG.ticket_label = t.label; RG.ticket_prio = t.priority; RG.ticket_room = t.room_id; RG.qr = { full_name: t.full_name, dob: t.dob, sex: t.sex, address: t.address };
+  RG.idt = 'CCCD'; RG.idn = t.id_number; RG.appt_id = undefined; RG.ticket_id = t.id; RG.ticket_label = t.label; RG.ticket_prio = t.priority; RG.ticket_room = t.room_id; RG.qr = { full_name: t.full_name, dob: t.dob, sex: t.sex, address: t.address };
   renderReg();
   lookup();
 };
@@ -161,7 +161,7 @@ const verifyCard = act(async no => {
 });
 const register = act(async () => {
   if (!$('#confirmInfo').checked) return toast('Hãy xác nhận thông tin bệnh nhân còn đúng (BR-ID-4)', true);
-  const b = { patient_id: RG.patient.id, room_id: $('#room').value, chief_complaint: $('#cc').value, priority: $('#prio')?.value || null, ticket_id: RG.ticket_id, route: $('#route')?.value, referral_no: $('#refno')?.value };
+  const b = { patient_id: RG.patient.id, room_id: $('#room').value, chief_complaint: $('#cc').value, priority: $('#prio')?.value || null, ticket_id: RG.ticket_id, appointment_id: RG.appt_id, route: $('#route')?.value, referral_no: $('#refno')?.value };
   const extra = { room: $('#room').selectedOptions[0].text, patient: RG.patient };
   try { RG = { mode: 'done', done: { ...await api('POST', '/encounters', b), ...extra } }; }
   catch (e) {

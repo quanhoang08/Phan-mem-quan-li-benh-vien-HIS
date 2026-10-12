@@ -10,6 +10,7 @@ import { normalizeName, isValidIdNumber, isValidCardNo, benefitRateOf } from '..
 import { shiftTotals } from '../src/domain/shift.js';
 import { slotsQuantity } from '../src/domain/prescription-quantity.js';
 import { parseCccdQr } from '../src/domain/cccd-qr.js';
+import { slotTime, shiftEnded, isoWeekday, addDays } from '../src/domain/schedule.js';
 
 const STATUSES = [null, 'REGISTERED', 'IN_EXAM', 'WAITING_SERVICES', 'RESULTS_READY', 'WAITING_PHARMACY', 'WAITING_PAYMENT', 'COMPLETED', 'CANCELLED'];
 // Bảng kỳ vọng chép tay từ SPEC 4.1 (độc lập với bảng trong code)
@@ -176,4 +177,16 @@ test('slotsQuantity: tổng liều các buổi × số ngày, làm tròn lên b�
   assert.equal(slotsQuantity([1, 0, 1, 0], 5), 10);
   assert.equal(slotsQuantity([1, 0, 1, 0.5], 5), 13); // 12,5
   assert.equal(slotsQuantity([0.1, 0.2, 0, 0], 3), 1); // 0,9 không sai số số thực
+});
+
+test('BR-APPT: giờ hẹn chia đều buổi theo sức chứa, thứ ISO và cộng ngày không lệch múi giờ', () => {
+  assert.equal(slotTime('MORNING', 1, 30), '07:00');
+  assert.equal(slotTime('MORNING', 2, 30), '07:05'); // 9 phút/số, làm tròn xuống 5 phút
+  assert.equal(slotTime('MORNING', 30, 30), '11:20');
+  assert.equal(slotTime('AFTERNOON', 2, 2), '15:15'); // 210 phút / 2 chỗ
+  assert.equal(shiftEnded('MORNING', 11 * 60 + 29), false);
+  assert.equal(shiftEnded('MORNING', 11 * 60 + 30), true);
+  assert.deepEqual(['2026-10-12', '2026-10-18'].map(isoWeekday), [1, 7]); // thứ Hai, Chủ nhật
+  assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+  assert.equal(addDays('2026-03-01', -1), '2026-02-28');
 });

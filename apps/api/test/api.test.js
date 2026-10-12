@@ -753,6 +753,80 @@ test('lịch làm việc: xem theo ngày, không trùng bác sĩ/phòng, đặt 
   err(await rec('POST', '/schedule/sessions', {}), 403, 'FORBIDDEN');
   assert.ok((await pool.query("SELECT count(*)::int n FROM audit_log WHERE action IN ('SCHEDULE_UPDATE','SCHEDULE_OFF','SCHEDULE_ON')")).rows[0].n >= 3);
 });
+const isoWd = d => new Date(d + 'T12:00:00Z').getUTCDay() || 7;
+const apptDay = () => { const d = isoIn(2); return isoWd(d) === 7 ? isoIn(3) : d; }; // ngày hẹn thử: không phải hôm nay, không phải Chủ nhật
+test('lịch hẹn: đặt theo sức chứa, không trùng, hủy trả số, ngày nghỉ và ngày không hợp lệ', async () => {
+  const day = apptDay(), wd = isoWd(day);
+  const sess = ok(await rec('GET', '/schedule/sessions')).find(s => s.room_code === 'NOI' && s.weekday === wd && s.shift === 'MORNING');
+  ok(await adm('PATCH', `/schedule/sessions/${sess.id}`, { capacity: 2 }));
+  const book = (p, o = {}) => rec('POST', '/appointments', { patient_id: pid[p], session_id: sess.id, day, reason: 'Tái khám', ...o });
+  const a1 = ok(await book('BN00003'), 201);
+  assert.deepEqual([a1.slot_no, a1.time], [1, '07:00']);
+  err(await book('BN00003'), 409, 'APPT_DUPLICATE');
+  const a2 = ok(await book('BN00004'), 201);
+  assert.deepEqual([a2.slot_no, a2.time], [2, '09:15']); // 270 phút / 2 chỗ
+  err(await book('BN00005'), 409, 'SESSION_FULL');
+  err(await rec('POST', `/appointments/${a1.id}/cancel`, {}), 400, 'VALIDATION');
+  ok(await rec('POST', `/appointments/${a1.id}/cancel`, { reason: 'Bệnh nhân báo bận' }));
+  err(await rec('POST', `/appointments/${a1.id}/cancel`, { reason: 'x' }), 409, 'APPT_NOT_CANCELLABLE');
+  assert.equal(ok(await book('BN00005'), 201).slot_no, 1); // số của lịch đã hủy được trả lại
+  err(await book('BN00006', { day: isoIn(-1) }), 400, 'VALIDATION');
+  err(await book('BN00006', { day: isoIn(40) }), 400, 'VALIDATION');
+  err(await book('BN00006', { day: [1, 2, 3, 4, 5, 6, 7].map(isoIn).find(d => isoWd(d) !== wd) }), 400, 'VALIDATION'); // buổi không làm việc thứ này
+  const off = ok(await adm('POST', `/schedule/sessions/${sess.id}/off`, { day, reason: 'Họp' }), 201);
+  err(await book('BN00006'), 409, 'SESSION_OFF');
+  ok(await adm('DELETE', `/schedule/off/${off.id}`));
+  const list = ok(await rec('GET', `/appointments?day=${day}`)).filter(a => a.status === 'BOOKED' && a.room_id === sess.room_id);
+  assert.deepEqual(list.map(a => a.slot_no), [1, 2]);
+  assert.equal(ok(await rec('GET', `/schedule?from=${day}&days=1`)).find(s => s.session_id === sess.id).booked, 2);
+  err(await cash('GET', '/appointments'), 403, 'FORBIDDEN');
+  ok(await adm('PATCH', `/schedule/sessions/${sess.id}`, { capacity: 30 }));
+});
+test('lịch hẹn: tiếp nhận chuyển ARRIVED, sai người/sai ngày bị chặn, chốt ngày đánh NO_SHOW', async () => {
+  const s = ok(await rec('GET', '/schedule/sessions'))[0];
+  const ins = async (p, day, slot) => (await pool.query("INSERT INTO appointment(patient_id,session_id,day,slot_no,channel) VALUES ($1,$2,$3,$4,'STAFF') RETURNING id", [pid[p], s.id, day, slot])).rows[0].id;
+  const mine = await ins('BN00007', isoIn(0), 91), others = await ins('BN00008', isoIn(0), 92), later = await ins('BN00009', isoIn(3), 93);
+  const regA = (p, appointment_id) => rec('POST', '/encounters', { patient_id: pid[p], room_id: rooms.NOI, appointment_id });
+  err(await regA('BN00007', others), 409, 'APPT_MISMATCH');
+  err(await regA('BN00009', later), 409, 'APPT_NOT_TODAY');
+  const e = ok(await regA('BN00007', mine), 201);
+  const row = (await pool.query('SELECT status, encounter_id FROM appointment WHERE id=$1', [mine])).rows[0];
+  assert.deepEqual([row.status, row.encounter_id], ['ARRIVED', e.id]);
+  err(await regA('BN00007', mine), 409, 'APPT_USED');
+  const past = await ins('BN00010', isoIn(-1), 94);
+  assert.equal(ok(await rec('POST', '/queue/close-day', { date: isoIn(-1) })).appointments_no_show, 1);
+  const st = id => pool.query('SELECT status FROM appointment WHERE id=$1', [id]).then(r => r.rows[0].status);
+  assert.deepEqual([await st(past), await st(later)], ['NO_SHOW', 'BOOKED']);
+});
+test('cổng bệnh nhân: OTP, đặt và hủy lịch của chính mình, token sai bị chặn', async () => {
+  const old = config.publicRateLimit;
+  config.publicRateLimit = 0; // không tính vào hạn mức kiosk của các test khác
+  try {
+    const call = (method, path, body, token) => fetch(srv.base + '/api/v1' + path, { method, headers: { 'content-type': 'application/json', ...(token ? { 'x-portal-token': token } : {}) },
+      body: body ? JSON.stringify(body) : undefined }).then(async x => ({ s: x.status, j: await x.json() }));
+    const login = async id => { const { dev_code } = ok(await call('POST', '/portal/otp', { id_number: id })); return call('POST', '/portal/login', { id_number: id, otp: dev_code }); };
+    err(await call('POST', '/portal/otp', { id_number: '123' }), 400, 'VALIDATION');
+    err(await call('GET', '/portal/appointments'), 401, 'UNAUTHENTICATED');
+    err(await call('GET', '/portal/appointments', null, 'token-gia'), 401, 'UNAUTHENTICATED');
+    const { dev_code } = ok(await call('POST', '/portal/otp', { id_number: '001090000001' }));
+    err(await call('POST', '/portal/login', { id_number: '001090000001', otp: dev_code === '000000' ? '111111' : '000000' }), 403, 'OTP_INVALID');
+    const me = ok(await call('POST', '/portal/login', { id_number: '001090000001', otp: dev_code }));
+    assert.match(me.full_name, /Nguyễn Văn An/);
+    err(await login('009999999999'), 404, 'NO_RECORD');
+    const day = apptDay(), s = ok(await call('GET', `/portal/schedule?from=${day}&days=1`, null, me.token)).find(x => x.room_code === 'NGOAI' && x.shift === 'MORNING');
+    assert.equal(s.off, false);
+    const body = { session_id: s.session_id, day, reason: 'Đau bụng' };
+    const a = ok(await call('POST', '/portal/appointments', body, me.token), 201);
+    err(await call('POST', '/portal/appointments', body, me.token), 409, 'APPT_DUPLICATE');
+    assert.ok(ok(await call('GET', '/portal/appointments', null, me.token)).some(x => x.id === a.id && x.status === 'BOOKED'));
+    const row = (await pool.query('SELECT channel, booked_by FROM appointment WHERE id=$1', [a.id])).rows[0];
+    assert.deepEqual([row.channel, row.booked_by], ['PORTAL', null]);
+    const other = ok(await login('001085000011'));
+    err(await call('POST', `/portal/appointments/${a.id}/cancel`, {}, other.token), 404, 'NOT_FOUND'); // không hủy được lịch của người khác
+    ok(await call('POST', `/portal/appointments/${a.id}/cancel`, {}, me.token));
+    assert.equal((await pool.query("SELECT count(*)::int n FROM audit_log WHERE action IN ('PORTAL_LOGIN','BOOK_APPOINTMENT','CANCEL_APPOINTMENT')")).rows[0].n >= 4, true);
+  } finally { config.publicRateLimit = old; }
+});
 test('bất biến sau toàn bộ test', async () => {
   const q = async sql => (await pool.query(sql)).rows[0];
   assert.equal((await q('SELECT count(*) n FROM drug_stock WHERE qty < 0')).n, 0);

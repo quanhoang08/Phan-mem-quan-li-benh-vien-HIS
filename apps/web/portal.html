@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cổng bệnh nhân · HIS mini</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+body{padding:16px;display:grid;justify-items:center;align-content:start}
+main{width:min(760px,100%)}
+main h1{margin:4px 0}
+.box{margin-top:16px;padding:20px;border-radius:14px;background:var(--card);box-shadow:var(--sh)}
+.days{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.days button.on{outline:2px solid currentColor}
+</style>
+</head>
+<body>
+<main>
+  <small class="mut">BỆNH VIỆN ĐA KHOA HIS MINI (giả lập)</small>
+  <h1>Cổng bệnh nhân</h1>
+  <p class="mut">Đặt lịch hẹn khám trước để không phải chờ lâu. Cần đã có hồ sơ tại bệnh viện.</p>
+  <div id="msg" aria-live="polite"></div>
+
+  <div class="box" id="auth">
+    <label for="cccd">Số căn cước công dân (12 số)</label>
+    <input id="cccd" inputmode="numeric" maxlength="12" autocomplete="off" autofocus>
+    <div style="margin-top:12px"><button class="p" id="sendOtp">Gửi mã OTP</button></div>
+    <div id="otpBox" hidden style="margin-top:14px">
+      <p class="mut">Mã OTP đã gửi tới số điện thoại đăng ký với căn cước công dân. <span id="otpHint"></span></p>
+      <label for="otp">Mã OTP (6 số)</label>
+      <input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="font-size:22px;letter-spacing:6px;max-width:220px">
+      <div style="margin-top:12px"><button class="p" id="login">Xác nhận</button></div>
+    </div>
+    <details style="margin-top:14px"><summary class="mut">Dữ liệu thử (giả lập)</summary><p><small>CCCD <code>001090000001</code> (Nguyễn Văn An) hoặc <code>001085000011</code> (Lê Thị Hoa).</small></p></details>
+  </div>
+
+  <div id="home" hidden>
+    <div class="box"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div>Xin chào <b id="who"></b></div><button id="logout">Thoát</button></div></div>
+    <div class="box"><h3 style="margin-top:0">Lịch hẹn của tôi</h3><div id="mine"></div></div>
+    <div class="box"><h3 style="margin-top:0">Đặt lịch hẹn mới</h3>
+      <div>Chọn ngày khám (14 ngày tới, chỉ hiện ngày còn chỗ)</div><div class="days" id="days"></div>
+      <div id="sessions"></div>
+      <label for="reason" style="margin-top:12px;display:block">Lý do khám (không bắt buộc)</label><input id="reason">
+    </div>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const dmy = d => String(d).split('-').reverse().join('/');
+const SHIFT = { MORNING: 'Sáng 07:00–11:30', AFTERNOON: 'Chiều 13:30–17:00' };
+const DOW = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+const ST = { BOOKED: ['Chờ đến khám', 'info'], ARRIVED: ['Đã đến', 'ok'], CANCELLED: ['Đã hủy', 'bad'], NO_SHOW: ['Vắng', 'warn'] };
+let token = '', sched = [], day = '';
+
+function say(text, cls = 'bad') { $('#msg').innerHTML = text ? `<div class="banner ${cls}">${esc(text)}</div>` : ''; }
+async function call(method, path, body) {
+  const r = await fetch('/api/v1' + path, { method, headers: { 'content-type': 'application/json', ...(token ? { 'x-portal-token': token } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { if (r.status === 401 && token) leave(); throw Object.assign(new Error(j.message || 'Lỗi'), { code: j.code }); }
+  return j;
+}
+const guard = fn => async (...a) => { try { say(''); await fn(...a); } catch (e) { say(e.message); } };
+function leave() { token = ''; $('#home').hidden = true; $('#auth').hidden = false; $('#otpBox').hidden = true; $('#otp').value = ''; }
+
+$('#sendOtp').onclick = guard(async () => {
+  const r = await call('POST', '/portal/otp', { id_number: $('#cccd').value.trim() });
+  $('#otpBox').hidden = false; $('#otp').focus();
+  $('#otpHint').textContent = r.dev_code ? `(Giả lập: mã là ${r.dev_code})` : '';
+});
+$('#login').onclick = guard(async () => {
+  const r = await call('POST', '/portal/login', { id_number: $('#cccd').value.trim(), otp: $('#otp').value.trim() });
+  token = r.token; $('#who').textContent = `${r.full_name} (${r.code})`; $('#auth').hidden = true; $('#home').hidden = false;
+  await refresh();
+});
+$('#otp').onkeydown = e => { if (e.key === 'Enter') $('#login').click(); };
+$('#logout').onclick = leave;
+
+async function refresh() {
+  const t = new Date().toLocaleDateString('sv');
+  const [mine, rows] = await Promise.all([call('GET', '/portal/appointments'), call('GET', `/portal/schedule?from=${t}&days=14`)]);
+  $('#mine').innerHTML = mine.length ? `<table><tr><th>Ngày</th><th>Giờ dự kiến</th><th>Phòng · Bác sĩ</th><th>Trạng thái</th><th></th></tr>${mine.map(a => `<tr><td>${dmy(a.day)}</td><td><b>${a.time}</b> (số ${a.slot_no})</td>
+    <td>${esc(a.room_name)}<br><small>${esc(a.doctor_name)}</small></td><td><span class="chip ${ST[a.status][1]}">${ST[a.status][0]}</span></td>
+    <td>${a.status === 'BOOKED' ? `<button class="sm" data-cancel="${a.id}">Hủy hẹn</button>` : ''}</td></tr>`).join('')}</table>` : '<span class="mut">Bạn chưa có lịch hẹn nào.</span>';
+  sched = rows.filter(s => !s.off && s.booked < s.capacity);
+  const days = [...new Set(sched.map(s => s.day))];
+  if (!days.includes(day)) day = days[0] || '';
+  $('#days').innerHTML = days.map(d => `<button data-day="${d}" class="${d === day ? 'on' : ''}">${DOW[new Date(d + 'T12:00:00').getDay()]}<br><small>${dmy(d).slice(0, 5)}</small></button>`).join('') || '<span class="mut">Hiện chưa có buổi khám nào còn chỗ.</span>';
+  $('#sessions').innerHTML = day ? `<table><tr><th>Phòng</th><th>Buổi</th><th>Bác sĩ</th><th>Còn chỗ</th><th></th></tr>${sched.filter(s => s.day === day).map(s => `<tr><td><b>${esc(s.room_name)}</b></td><td>${SHIFT[s.shift]}</td>
+    <td>${esc(s.doctor_name)}</td><td>${s.capacity - s.booked}</td><td><button class="sm p" data-book="${s.session_id}">Đặt hẹn</button></td></tr>`).join('')}</table>` : '';
+}
+document.addEventListener('click', guard(async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.day) { day = b.dataset.day; await refresh(); }
+  if (b.dataset.book) {
+    const a = await call('POST', '/portal/appointments', { session_id: b.dataset.book, day, reason: $('#reason').value });
+    say(`Đã đặt hẹn ngày ${dmy(a.day)}, số ${a.slot_no}, dự kiến khám lúc ${a.time}. Vui lòng đến quầy tiếp đón và xuất trình căn cước công dân.`, 'ok'); $('#reason').value = ''; await refresh();
+  }
+  if (b.dataset.cancel && confirm('Hủy lịch hẹn này?')) { await call('POST', `/portal/appointments/${b.dataset.cancel}/cancel`, {}); say('Đã hủy lịch hẹn', 'ok'); await refresh(); }
+}));
+</script>
+</body>
+</html>

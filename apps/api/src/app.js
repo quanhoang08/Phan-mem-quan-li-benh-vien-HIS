@@ -26,6 +26,8 @@ import './modules/reports.js';
 import './modules/audit.js';
 import './modules/admin.js';
 import './modules/schedule.js';
+import './modules/appointments.js';
+import './modules/portal.js';
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -105,7 +107,7 @@ async function handle(req, res) {
     if (!user) throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập');
     if (Array.isArray(rt.roles) && !rt.roles.includes(user.role)) throw new AppError(403, 'FORBIDDEN', 'Vai trò của bạn không có quyền thực hiện thao tác này');
   }
-  if (url.pathname.startsWith('/api/v1/kiosk/')) hit(req.socket.remoteAddress);
+  if (/^\/api\/v1\/(kiosk|portal)\//.test(url.pathname)) hit(req.socket.remoteAddress);
   const params = url.pathname.match(rt.re).groups || {};
   if (params.id && !UUID.test(params.id)) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy');
   let b = {};
