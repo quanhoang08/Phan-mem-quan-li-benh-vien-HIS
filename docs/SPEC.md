@@ -369,6 +369,28 @@ Chuỗi QR: `số CCCD|số CMND cũ|họ tên|ddmmyyyy|giới tính|địa ch�
 - BR-KIOSK-6: phòng khám dự kiến do nhân viên tiếp đón gán (`PATCH /tickets/:id` `{room_id}`, audit `TICKET_ASSIGN_ROOM`) sau khi hỏi nhu cầu khám; kiosk không tự chọn. Lúc tiếp nhận phòng được chọn sẵn, vẫn đổi được.
 - Phiếu in lấy ngày giờ từ trình duyệt kiosk.
 
+### 4.10 Lịch làm việc và lịch hẹn khám trước
+
+- BR-SCH-1: lịch làm việc là mẫu tuần theo phòng, thứ (ISO 1–7) và buổi (`MORNING` 07:00–11:30, `AFTERNOON` 13:30–17:00), mỗi buổi một bác sĩ và một sức chứa. Một bác sĩ không ngồi hai phòng cùng buổi (chỉ mục duy nhất). Ngày nghỉ là ngoại lệ (`schedule_off`, bắt buộc lý do, không đặt cho ngày đã qua). Mọi vai trò xem (`GET /schedule`), chỉ quản trị sửa (`/schedule/sessions`, `/schedule/sessions/:id/off`, `DELETE /schedule/off/:id`).
+- BR-APPT-1: chỉ đặt hẹn từ hôm nay đến 30 ngày tới, vào buổi đang bật, đúng thứ của buổi, chưa nghỉ, và (nếu là hôm nay) buổi chưa kết thúc.
+- BR-APPT-2: số thứ tự trong buổi là số nhỏ nhất còn trống trong 1..sức chứa; hết số thì `SESSION_FULL`. Server khóa dòng buổi khi đặt để hai người đặt cùng lúc không vượt sức chứa. Giờ hẹn dự kiến chia đều buổi theo sức chứa, làm tròn xuống 5 phút (`domain/schedule.js`).
+- BR-APPT-3: một bệnh nhân một chỗ mỗi buổi mỗi ngày (`APPT_DUPLICATE`).
+- BR-APPT-4: chỉ lịch `BOOKED` mới hủy được, kèm lý do; số thứ tự được trả lại. Lễ tân hủy cho mọi lịch, bệnh nhân chỉ hủy lịch của mình.
+- BR-APPT-5: tiếp nhận người có hẹn: `POST /encounters` kèm `appointment_id` (đúng người, đúng ngày hẹn, còn `BOOKED`) chuyển lịch sang `ARRIVED` và ghi `encounter_id` trong cùng giao dịch. Lịch hẹn không thay đổi máy trạng thái lượt khám và chưa cho ưu tiên trong hàng đợi.
+- BR-APPT-6: chốt ngày (`POST /queue/close-day`) chuyển lịch `BOOKED` của ngày đó thành `NO_SHOW`.
+- Cổng bệnh nhân (`/portal.html`, route công khai `/portal/*`, chịu giới hạn tần suất như kiosk): nhập CCCD, nhận OTP qua cổng định danh giả lập (`POST /portal/otp`), đăng nhập (`POST /portal/login`) nhận token 15 phút gửi trong header `x-portal-token`; chỉ bệnh nhân đã có hồ sơ CCCD (`NO_RECORD` nếu chưa). Xem lịch hẹn của mình, xem buổi còn chỗ 14 ngày, đặt và hủy hẹn. Token giữ trong bộ nhớ một tiến trình.
+- Route lễ tân: `GET /appointments?day=` (lễ tân, bác sĩ, quản lý), `POST /appointments`, `POST /appointments/:id/cancel`. Audit: `BOOK_APPOINTMENT`, `CANCEL_APPOINTMENT`, `PORTAL_LOGIN`, `SCHEDULE_*`.
+
+---
+
+### 4.11 Hồ sơ nền và ghi chú diễn tiến
+
+- BR-EMR-4: tình trạng nền (bệnh mạn tính, tiền sử bệnh, phẫu thuật, gia đình) thuộc về bệnh nhân, không khóa theo lượt khám; gắn ICD-10 tùy chọn, kèm năm bắt đầu. Chỉ bác sĩ xem và ghi (`GET`/`POST /patients/:id/conditions`, `PATCH /conditions/:id`); không xóa, "đã khỏi" đặt `active=false`. Có trong `GET /encounters/:id` của bác sĩ (`conditions`). Audit `ADD_CONDITION`, `UPDATE_CONDITION`.
+- BR-EMR-5: ghi chú diễn tiến SOAP (`POST /encounters/:id/notes`), mỗi lượt khám nhiều ghi chú, chỉ thêm, sai thì thêm ghi chú mới. Chịu cùng khóa phiên bản (`VERSION_CONFLICT`), khóa hồ sơ sau kết thúc khám (`RECORD_LOCKED`) và trạng thái cho phép ghi như các nội dung lâm sàng khác; cần ít nhất một phần S, O, A hoặc P. Ghi chú nằm trong nội dung ký số `EXAM_SUMMARY` khi kết thúc khám. Audit `ADD_NOTE`.
+- Ô chẩn đoán và ô ICD-10 của tình trạng nền tìm trên máy chủ khi gõ (`GET /catalog/icd10?q=`), phù hợp danh mục lớn.
+
+---
+
 ## 5. Mô hình dữ liệu
 
 ### 5.1 Sơ đồ quan hệ
@@ -716,6 +738,9 @@ Nếu có câu lệnh nào cập nhật 0 dòng thì hoàn tác cả giao dịch
 | `encounter_consult.prepayment_id` (008) | Phí khám thêm chuyên khoa đã thu trước (`BR-BILL-5`) |
 | `refund.service_order_id`, `refund_request.service_order_id` (008) | Hoàn riêng một chỉ định CLS đã thu trước rồi bị hủy (`BR-BILL-8`). Phiếu hoàn và đề nghị trỏ đúng một trong `invoice_id`, `prepayment_id`, `service_order_id`, `consult_id` |
 | `refund.consult_id`, `refund_request.consult_id` (009) | Hoàn riêng một lượt mời khám thêm đã thu trước rồi bị hủy (`BR-BILL-8`) |
+| `schedule_session(room_id, doctor_id, weekday, shift, capacity, active)`, `schedule_off(session_id, day, reason)` (014) | Lịch làm việc: mẫu tuần theo phòng, thứ (ISO 1–7), buổi (`MORNING`/`AFTERNOON`), một bác sĩ và sức chứa; ngày nghỉ là ngoại lệ. Một bác sĩ không ngồi hai phòng cùng buổi (chỉ mục duy nhất). Xem: `GET /schedule`; sửa: ADMIN (`BR-SCH-1`) |
+| `appointment(patient_id, session_id, day, slot_no, status, reason, channel, booked_by, encounter_id, cancel_reason)` (015) | Lịch hẹn khám trước. `status`: `BOOKED`, `ARRIVED`, `CANCELLED`, `NO_SHOW`; `channel`: `STAFF` hoặc `PORTAL`. Chỉ mục duy nhất: một số thứ tự một lịch còn hiệu lực (hủy thì trả số); một bệnh nhân một chỗ mỗi buổi. `ARRIVED` bắt buộc có `encounter_id` |
+| `patient_condition(patient_id, kind, icd10_code, note, since_year, active)`, `encounter_note(encounter_id, subjective, objective, assessment, plan, author_id)` (016) | Hồ sơ nền và diễn tiến. `kind`: `CHRONIC`, `HISTORY`, `SURGERY`, `FAMILY`; không xóa, "đã khỏi" là `active=false`. `encounter_note` chỉ thêm (trigger chặn sửa/xóa) |
 | `prescription_line.returned_qty` (007) | Số thuốc người bệnh đã trả lại (`BR-RX-8`), `0 ≤ returned_qty ≤ quantity`, chỉ dòng `HOSPITAL` |
 
 ---
@@ -912,9 +937,12 @@ Xuất FHIR là bài tập tốt để chứng minh dữ liệu của bạn "đi
 | Lễ tân | Đăng ký khám | Tìm hồ sơ theo giấy tờ, cảnh báo trùng, nhập thẻ BHYT, chọn phòng, in số thứ tự |
 | | Tra cứu bệnh nhân | Tìm theo họ tên không dấu, mã BN, số giấy tờ; đăng ký khám ngay từ kết quả |
 | | Hàng đợi hôm nay | Danh sách theo phòng và trạng thái, nút Gọi số |
+| Lễ tân, bác sĩ, quản lý | Lịch hẹn | Chọn ngày, đặt hẹn cho bệnh nhân vào buổi còn chỗ (lễ tân), danh sách hẹn theo ngày, tiếp nhận người đến đúng ngày hẹn, hủy hẹn |
+| Lễ tân, bác sĩ, quản lý, quản trị | Lịch khám | Lưới tuần phòng × buổi × thứ kèm bác sĩ, sức chứa, ngày nghỉ; quản trị đặt/bỏ nghỉ và sửa mẫu tuần |
+| Bệnh nhân | Cổng bệnh nhân (`/portal.html`) | CCCD + OTP, xem và hủy lịch hẹn của mình, chọn ngày và buổi còn chỗ để đặt |
 | Lễ tân, quản lý | Màn hình gọi số | Đặt ở phòng chờ: mỗi phòng số đang mời (nhấp nháy), đang khám, số tiếp theo; tên viết tắt; chuông báo và đọc số bằng giọng tiếng Việt của trình duyệt (chỉ chuông nếu máy không có giọng tiếng Việt) |
 | Bác sĩ | Hàng đợi khám | Danh sách bệnh nhân của phòng (trình duyệt nhớ phòng đã chọn), chip trạng thái, gọi số |
-| | Bệnh án | Sinh hiệu kèm BMI và cảnh báo, khám, chẩn đoán, chỉ định, kết quả dạng bảng chỉ số có cờ ↑↓, đơn thuốc, in đơn thuốc và phiếu kết quả, lịch sử các lần khám trước, dị ứng nổi bật |
+| | Bệnh án | Tiền sử và bệnh mạn tính, ghi chú diễn tiến SOAP, tìm ICD-10 trên máy chủ, in phiếu chỉ định cận lâm sàng; sinh hiệu kèm BMI và cảnh báo, khám, chẩn đoán, chỉ định, kết quả dạng bảng chỉ số có cờ ↑↓, đơn thuốc, in đơn thuốc và phiếu kết quả, lịch sử các lần khám trước, dị ứng nổi bật |
 | KTV | Danh sách chờ thực hiện | Theo nhóm dịch vụ; bảng chỉ số kèm khoảng tham chiếu theo giới/tuổi, cờ hiện ngay khi gõ; lưu một phiếu không làm mất số liệu đang nhập ở phiếu khác |
 | Dược sĩ | Đơn chờ cấp phát | Số lượng cần và tồn kho, cảnh báo thiếu |
 | | Tồn kho | Tồn và tồn dùng được, các lô kèm hạn dùng (cảnh báo cận hạn ≤ 90 ngày, hết hạn), phiếu nhập kho theo lô, hủy lô hết hạn |
@@ -923,7 +951,7 @@ Xuất FHIR là bài tập tốt để chứng minh dữ liệu của bạn "đi
 | | Hoàn tiền | Phí khám chờ hoàn (lượt hủy trước khi khám), chỉ định CLS và khám thêm đã hủy chờ hoàn, đề nghị hoàn và trạng thái duyệt, chi hoàn đã duyệt |
 | Quản lý | Duyệt hoàn tiền | Đề nghị chờ duyệt, duyệt hoặc từ chối kèm ghi chú, lịch sử |
 | Dược sĩ | Nhận trả thuốc | Đơn đã cấp chưa thanh toán, nhập số trả từng thuốc kèm lý do |
-| Thu ngân, quản lý | Ca thu ngân | Mở ca (quỹ đầu ca), số liệu theo phương thức, chốt ca có tiền đếm được và giải trình lệch; danh sách ca theo ngày |
+| Thu ngân, quản lý | Ca thu ngân | Mở ca (quỹ đầu ca), số liệu theo phương thức, chốt ca có tiền đếm được và giải trình lệch; danh sách ca theo ngày, in biên bản chốt ca (thu ngân và quản lý ký) |
 | Quản lý | Báo cáo | Số lượt khám, thời gian chờ, doanh thu, top chẩn đoán, tồn kho thấp |
 | Quản lý, quản trị | Nhật ký truy vết | Lọc theo bệnh nhân, người dùng, thời gian |
 | Quản trị | Danh mục và người dùng | Dịch vụ, thuốc, ICD-10, khoảng tham chiếu xét nghiệm, tài khoản |
@@ -982,8 +1010,8 @@ Mỗi milestone kết thúc bằng một thứ chạy được và test xanh. Đ
 - Dược nâng cao: đơn thuốc điện tử liên thông, màn quản trị danh mục tương tác. (Lô và hạn dùng, tương tác thuốc đã có: mục 5.5, `BR-RX-4` đến `BR-RX-6`.)
 - Cận lâm sàng thật: nhận kết quả từ máy qua HL7/ASTM, PACS và xem ảnh. (Chỉ số định lượng có khoảng tham chiếu theo giới/tuổi đã có: `BR-LAB-*`; khoảng tham chiếu trong seed chỉ để minh họa, cần lấy từ phòng xét nghiệm thật.)
 - Gọi số nâng cao: loa phát thanh thật, nhiều màn hình theo khu. (Ưu tiên, đánh vắng, chốt ngày đã có: `BR-Q-*`.)
-- Thu ngân nâng cao: in biên bản chốt ca. (Thu phí khám và khám thêm trước, duyệt hoàn tiền có ngưỡng, hoàn từng chỉ định CLS và lượt khám thêm, trả thuốc nhập kho đã có: `BR-BILL-5`…`BR-BILL-8`, `BR-RX-8`.)
-- Cổng bệnh nhân: đặt lịch, xem kết quả.
+- Thu ngân nâng cao: (in biên bản chốt ca đã có; Thu phí khám và khám thêm trước, duyệt hoàn tiền có ngưỡng, hoàn từng chỉ định CLS và lượt khám thêm, trả thuốc nhập kho đã có: `BR-BILL-5`…`BR-BILL-8`, `BR-RX-8`.)
+- Cổng bệnh nhân: xem kết quả xét nghiệm, nhắc lịch hẹn (đặt/hủy hẹn đã có: mục 4.10).
 - Tuân thủ: ký số thật, danh mục theo văn bản mới nhất, định dạng dữ liệu giám định thanh toán.
 - Vận hành: sao lưu, máy chủ dự phòng, giám sát.
 
