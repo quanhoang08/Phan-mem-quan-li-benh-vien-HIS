@@ -725,6 +725,34 @@ test('đơn thuốc theo buổi sáng/trưa/chiều/tối: server tính số lư
   assert.deepEqual([ome.quantity, ome.dose_morning], [6, null]);
   err(await put([{ drug_id: drug.PARA, dose_morning: 0, days: 5 }]), 400, 'VALIDATION'); // không buổi nào có liều
 });
+test('lịch làm việc: xem theo ngày, không trùng bác sĩ/phòng, đặt nghỉ và bỏ nghỉ', async () => {
+  const wk = ok(await rec('GET', `/schedule?from=${isoIn(0)}&days=7`));
+  assert.ok(wk.length >= 30 && wk.every(s => s.doctor_name && s.capacity > 0), 'lịch mẫu có đủ buổi trong tuần'); // 5 phòng sáng + 3 phòng chiều
+  assert.deepEqual(wk.map(s => s.day), [...wk.map(s => s.day)].sort());
+  err(await rec('GET', '/schedule?from=abc'), 400, 'VALIDATION');
+  const sessions = ok(await doc('GET', '/schedule/sessions'));
+  const noi = sessions.find(s => s.room_code === 'NOI' && s.weekday === 1 && s.shift === 'MORNING');
+  const da = sessions.find(s => s.room_code === 'DA' && s.weekday === 1 && s.shift === 'MORNING');
+  // trùng phòng/thứ/buổi; cùng bác sĩ ở hai phòng cùng buổi
+  err(await adm('POST', '/schedule/sessions', { room_id: noi.room_id, doctor_id: noi.doctor_id, weekday: 1, shift: 'MORNING', capacity: 10 }), 409, 'CONSTRAINT_VIOLATION');
+  err(await adm('PATCH', `/schedule/sessions/${da.id}`, { doctor_id: noi.doctor_id }), 409, 'CONSTRAINT_VIOLATION');
+  err(await adm('PATCH', `/schedule/sessions/${da.id}`, { capacity: 0 }), 400, 'VALIDATION');
+  err(await adm('PATCH', `/schedule/sessions/${da.id}`, { doctor_id: (await pool.query("SELECT id FROM app_user WHERE role='LAB_TECH'")).rows[0].id }), 400, 'VALIDATION');
+  ok(await adm('PATCH', `/schedule/sessions/${da.id}`, { capacity: 12 }));
+  // nghỉ một ngày: hiện trong lịch, không trùng, không cho ngày đã qua, bỏ nghỉ được
+  const sess = sessions.find(s => s.room_code === 'NGOAI' && s.weekday === 2 && s.shift === 'MORNING');
+  const tue = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(isoIn).find(d => new Date(d + 'T00:00').getDay() === 2);
+  err(await adm('POST', `/schedule/sessions/${sess.id}/off`, { day: isoIn(-1), reason: 'x' }), 400, 'VALIDATION');
+  err(await adm('POST', `/schedule/sessions/${sess.id}/off`, { day: tue }), 400, 'VALIDATION');
+  const off = ok(await adm('POST', `/schedule/sessions/${sess.id}/off`, { day: tue, reason: 'Bác sĩ đi hội nghị' }), 201);
+  err(await adm('POST', `/schedule/sessions/${sess.id}/off`, { day: tue, reason: 'lần hai' }), 409, 'ALREADY_OFF');
+  const row = async () => ok(await rec('GET', `/schedule?from=${tue}&days=1`)).find(s => s.session_id === sess.id);
+  assert.equal((await row()).off_reason, 'Bác sĩ đi hội nghị');
+  ok(await adm('DELETE', `/schedule/off/${off.id}`));
+  assert.equal((await row()).off_id, null);
+  err(await rec('POST', '/schedule/sessions', {}), 403, 'FORBIDDEN');
+  assert.ok((await pool.query("SELECT count(*)::int n FROM audit_log WHERE action IN ('SCHEDULE_UPDATE','SCHEDULE_OFF','SCHEDULE_ON')")).rows[0].n >= 3);
+});
 test('bất biến sau toàn bộ test', async () => {
   const q = async sql => (await pool.query(sql)).rows[0];
   assert.equal((await q('SELECT count(*) n FROM drug_stock WHERE qty < 0')).n, 0);

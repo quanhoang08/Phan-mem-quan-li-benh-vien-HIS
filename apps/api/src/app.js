@@ -25,6 +25,7 @@ import './modules/billing.js';
 import './modules/reports.js';
 import './modules/audit.js';
 import './modules/admin.js';
+import './modules/schedule.js';
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };

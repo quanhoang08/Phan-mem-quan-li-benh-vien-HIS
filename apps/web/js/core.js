@@ -15,13 +15,13 @@ const prioChip = p => p ? `<span class="chip warn" title="Ưu tiên khám">★ $
 const ROLE = { RECEPTION: 'Lễ tân', DOCTOR: 'Bác sĩ', LAB_TECH: 'KTV', PHARMACIST: 'Dược sĩ', CASHIER: 'Thu ngân', MANAGER: 'Quản lý', ADMIN: 'Quản trị' };
 const ALLERGY_CLASSES = ['PENICILLIN', 'NSAID', 'SULFA', 'CEPHALOSPORIN', 'MACROLIDE'];
 const MENU = {
-  RECEPTION: [['reg', 'Đăng ký khám'], ['pts', 'Tra cứu bệnh nhân'], ['queue', 'Hàng đợi hôm nay'], ['tv', 'Màn hình gọi số']],
-  DOCTOR: [['queue', 'Hàng đợi khám']],
+  RECEPTION: [['reg', 'Đăng ký khám'], ['pts', 'Tra cứu bệnh nhân'], ['queue', 'Hàng đợi hôm nay'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
+  DOCTOR: [['queue', 'Hàng đợi khám'], ['sched', 'Lịch khám']],
   LAB_TECH: [['lab', 'Danh sách chờ']],
   PHARMACIST: [['rx', 'Đơn chờ cấp phát'], ['ret', 'Nhận trả thuốc'], ['inv', 'Tồn kho']],
   CASHIER: [['bill', 'Hóa đơn chờ'], ['prepay', 'Thu trước'], ['refunds', 'Hoàn tiền'], ['shift', 'Ca thu ngân']],
-  MANAGER: [['rep', 'Báo cáo'], ['refunds', 'Duyệt hoàn tiền'], ['shift', 'Ca thu ngân'], ['trace', 'Truy vết'], ['audit', 'Nhật ký'], ['queue', 'Hàng đợi'], ['tv', 'Màn hình gọi số']],
-  ADMIN: [['admin', 'Quản trị'], ['audit', 'Nhật ký'], ['trace', 'Truy vết'], ['rep', 'Báo cáo']],
+  MANAGER: [['rep', 'Báo cáo'], ['refunds', 'Duyệt hoàn tiền'], ['shift', 'Ca thu ngân'], ['trace', 'Truy vết'], ['audit', 'Nhật ký'], ['queue', 'Hàng đợi'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
+  ADMIN: [['admin', 'Quản trị'], ['sched', 'Lịch khám'], ['audit', 'Nhật ký'], ['trace', 'Truy vết'], ['rep', 'Báo cáo']],
 };
 const ICON = {
   reg: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
@@ -30,6 +30,7 @@ const ICON = {
   rx: '<path d="m10.5 20.5-7-7a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7z"/><path d="m8.5 8.5 7 7"/>',
   inv: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
   pts: '<circle cx="10" cy="8" r="4"/><path d="M3 21v-1a6 6 0 0 1 9.5-4.9"/><circle cx="17" cy="17" r="3"/><path d="m21 21-1.8-1.8"/>',
+  sched: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18M8 14h3"/>',
   tv: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
   bill: '<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
   rep: '<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-9"/>',

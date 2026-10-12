@@ -2,7 +2,7 @@
 import { hashPassword } from '../src/password.js';
 import { normalizeName, benefitRateOf } from '../src/domain/identity.js';
 
-const USERS = [['reception', 'Lễ tân Hoa', 'RECEPTION'], ['doctor', 'BS. Trần Minh', 'DOCTOR'], ['lab', 'KTV Lê Lan', 'LAB_TECH'], ['pharmacist', 'DS. Phạm Hùng', 'PHARMACIST'],
+const USERS = [['reception', 'Lễ tân Hoa', 'RECEPTION'], ['doctor', 'BS. Trần Minh', 'DOCTOR'], ['bs_ngoai', 'BS. Nguyễn Hà', 'DOCTOR'], ['bs_nhi', 'BS. Lê Quang', 'DOCTOR'], ['bs_tmh', 'BS. Phạm Thu', 'DOCTOR'], ['bs_da', 'BS. Đỗ An', 'DOCTOR'], ['lab', 'KTV Lê Lan', 'LAB_TECH'], ['pharmacist', 'DS. Phạm Hùng', 'PHARMACIST'],
   ['cashier', 'Thu ngân Mai', 'CASHIER'], ['manager', 'Quản lý Đức', 'MANAGER'], ['admin', 'Quản trị Bình', 'ADMIN']];
 const ROOMS = [['NOI', 'Phòng Nội'], ['NGOAI', 'Phòng Ngoại'], ['NHI', 'Phòng Nhi'], ['TMH', 'Tai Mũi Họng'], ['DA', 'Da liễu']];
 const ICD = [['J20.9', 'Viêm phế quản cấp, không đặc hiệu'], ['J00', 'Viêm mũi họng cấp (cảm lạnh)'], ['J06.9', 'Nhiễm trùng hô hấp trên cấp'], ['J18.9', 'Viêm phổi'],
@@ -96,6 +96,15 @@ export async function seed(client) {
 
   for (const [u, n, r] of USERS) await q('INSERT INTO app_user(username,full_name,password_hash,role) VALUES ($1,$2,$3,$4)', u, n, hashPassword('his12345'), r);
   for (const r of ROOMS) await q('INSERT INTO room(code,name) VALUES ($1,$2)', ...r);
+  // Lịch mẫu: sáng thứ Hai–Bảy mọi phòng, chiều thứ Hai–Sáu ba phòng đầu; mỗi phòng một bác sĩ cố định
+  const DOCS = { NOI: 'doctor', NGOAI: 'bs_ngoai', NHI: 'bs_nhi', TMH: 'bs_tmh', DA: 'bs_da' };
+  for (const [room, doc] of Object.entries(DOCS)) {
+    for (const [shift, days, rooms] of [['MORNING', 6, ['NOI', 'NGOAI', 'NHI', 'TMH', 'DA']], ['AFTERNOON', 5, ['NOI', 'NGOAI', 'NHI']]]) {
+      if (!rooms.includes(room)) continue;
+      for (let wd = 1; wd <= days; wd++)
+        await q('INSERT INTO schedule_session(room_id,doctor_id,weekday,shift,capacity) SELECT r.id, u.id, $3, $4, 30 FROM room r, app_user u WHERE r.code=$1 AND u.username=$2', room, doc, wd, shift);
+    }
+  }
   for (const r of ICD) await q('INSERT INTO icd10(code,name_vi) VALUES ($1,$2)', ...r);
   for (const s of SERVICES) await q('INSERT INTO service_catalog(code,name,grp,price,insurance_covered) VALUES ($1,$2,$3,$4,$5)', ...s);
   for (const [code, name, unit, cls, price, cov, qty] of DRUGS) {
