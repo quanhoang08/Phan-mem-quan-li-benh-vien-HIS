@@ -8,6 +8,7 @@ import { ROUTES, routeRate, exemptRate } from '../domain/pricing.js';
 import { priorityOf, compareQueue, MIN_CALLS_BEFORE_SKIP } from '../domain/queue-order.js';
 import { config } from '../config.js';
 import { needsPrepay } from './billing.js';
+import { conditionsOf, notesOf } from './history.js';
 
 const pad = (n, w) => String(n).padStart(w, '0');
 const EVENT = { start: 'ExamStarted', order_services: 'ServicesOrdered', results_ready: 'ResultsReady', finish: 'ExamFinished', dispense: 'PrescriptionDispensed', pay: 'PaymentCompleted' };
@@ -111,6 +112,8 @@ route('GET', '/encounters/:id', 'any', async c => {
     out.signatures = await c.db.all('SELECT s.doc_type, s.doc_hash, s.method, s.signed_at, u.full_name signer FROM record_signature s JOIN app_user u ON u.id=s.signer_id WHERE s.encounter_id=$1 ORDER BY s.signed_at', e.id);
     out.documents = await c.db.all('SELECT d.kind, d.serial_no, d.data, d.issued_at, u.full_name issued_by FROM encounter_document d JOIN app_user u ON u.id=d.issued_by WHERE d.encounter_id=$1 ORDER BY d.issued_at', e.id);
     out.amendments = await c.db.all('SELECT a.entity_type, a.reason, a.before, a.after, a.at, u.full_name actor FROM record_amendment a JOIN app_user u ON u.id=a.actor_id WHERE a.encounter_id=$1 ORDER BY a.at', e.id);
+    out.conditions = await conditionsOf(c.db, p.id); // BR-EMR-4: tiền sử, bệnh mạn tính
+    out.notes = await notesOf(c.db, e.id); // BR-EMR-5: ghi chú diễn tiến SOAP
     await c.audit('VIEW_CHART', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id }); // BR-AUD-2
   }
   if (role === D || role === 'LAB_TECH')

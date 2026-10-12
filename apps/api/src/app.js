@@ -28,6 +28,7 @@ import './modules/admin.js';
 import './modules/schedule.js';
 import './modules/appointments.js';
 import './modules/portal.js';
+import './modules/history.js';
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };

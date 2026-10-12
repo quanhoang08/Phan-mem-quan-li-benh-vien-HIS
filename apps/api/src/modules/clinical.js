@@ -95,6 +95,7 @@ async function signDocs(c, e) {
       diagnoses: await c.db.all('SELECT icd10_code, is_primary FROM encounter_diagnosis WHERE encounter_id=$1 ORDER BY icd10_code', e.id),
       consults: await c.db.all("SELECT r.code, k.conclusion FROM encounter_consult k JOIN room r ON r.id=k.room_id WHERE k.encounter_id=$1 AND k.status='RESULTED' ORDER BY k.nth", e.id),
       follow_up: (await c.db.one('SELECT follow_up_date, follow_up_note FROM encounter WHERE id=$1', e.id)),
+      notes: await c.db.all('SELECT subjective, objective, assessment, plan FROM encounter_note WHERE encounter_id=$1 ORDER BY created_at, id', e.id),
     },
     LAB_RESULT: await c.db.all('SELECT s.code, r.result_text, r.is_abnormal FROM service_result r JOIN service_order o ON o.id=r.order_id JOIN service_catalog s ON s.id=o.service_id WHERE o.encounter_id=$1 ORDER BY s.code', e.id),
     PRESCRIPTION: await c.db.all('SELECT d.code, l.dose_per_time, l.times_per_day, l.days, l.quantity, l.source FROM prescription_line l JOIN prescription p ON p.id=l.prescription_id JOIN drug d ON d.id=l.drug_id WHERE p.encounter_id=$1 ORDER BY d.code', e.id),

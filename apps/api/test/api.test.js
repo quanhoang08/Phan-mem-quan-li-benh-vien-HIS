@@ -827,6 +827,37 @@ test('cổng bệnh nhân: OTP, đặt và hủy lịch của chính mình, toke
     assert.equal((await pool.query("SELECT count(*)::int n FROM audit_log WHERE action IN ('PORTAL_LOGIN','BOOK_APPOINTMENT','CANCEL_APPOINTMENT')")).rows[0].n >= 4, true);
   } finally { config.publicRateLimit = old; }
 });
+test('hồ sơ nền và ghi chú SOAP: chỉ bác sĩ, ICD-10 hợp lệ, chỉ thêm, khóa phiên bản và trạng thái', async () => {
+  const p = ok(await rec('POST', '/patients', { id_type: 'CCCD', id_number: '001091000088', full_name: 'Hồ Sơ Nền', dob: '1991-01-01', sex: 'MALE' }), 201).patient;
+  const y = new Date().getFullYear();
+  ok(await rec('POST', `/patients/${p.id}/insurance`, { card_no: 'DN4010000088001', facility_code: '01001', valid_from: `${y}-01-01`, valid_to: `${y}-12-31` }), 201);
+  const e = ok(await rec('POST', '/encounters', { patient_id: p.id, room_id: rooms.NOI }), 201);
+  err(await doc('POST', `/encounters/${e.id}/notes`, { subjective: 'x' }), 409, 'ENCOUNTER_STATE_INVALID'); // chưa bắt đầu khám
+  ok(await doc('POST', `/encounters/${e.id}/start`));
+  const cond = b => doc('POST', `/patients/${p.id}/conditions`, b);
+  err(await rec('GET', `/patients/${p.id}/conditions`), 403, 'FORBIDDEN');
+  err(await cond({ kind: 'KHAC', note: 'x' }), 400, 'VALIDATION');
+  err(await cond({ kind: 'CHRONIC', note: '  ' }), 400, 'VALIDATION');
+  err(await cond({ kind: 'CHRONIC', note: 'x', icd10_code: 'ZZZ.9' }), 400, 'VALIDATION');
+  err(await cond({ kind: 'CHRONIC', note: 'x', since_year: 1800 }), 400, 'VALIDATION');
+  const k = ok(await cond({ kind: 'CHRONIC', note: 'Tăng huyết áp, đang dùng thuốc', icd10_code: 'I10', since_year: 2018 }), 201);
+  ok(await cond({ kind: 'SURGERY', note: 'Cắt ruột thừa', since_year: 2010 }), 201);
+  ok(await doc('PATCH', `/conditions/${k.id}`, { active: false }));
+  const conds = ok(await doc('GET', `/patients/${p.id}/conditions`));
+  assert.deepEqual(conds.map(c => c.active), [true, false]); // đang áp dụng xếp trước
+  assert.match(conds[1].icd10_name, /Tăng huyết áp/);
+  const v0 = ok(await doc('GET', `/encounters/${e.id}`)).encounter.version;
+  const note = (b, version) => doc('POST', `/encounters/${e.id}/notes`, { ...b, version });
+  const n = ok(await note({ subjective: 'Ho 3 ngày', plan: 'Uống thuốc, tái khám sau 5 ngày' }, v0), 201);
+  assert.equal(n.version, v0 + 1);
+  err(await note({ subjective: 'trễ' }, v0), 409, 'VERSION_CONFLICT');
+  err(await note({ subjective: '  ', plan: '' }, n.version), 400, 'VALIDATION');
+  err(await rec('POST', `/encounters/${e.id}/notes`, { subjective: 'x' }), 403, 'FORBIDDEN');
+  const chart = ok(await doc('GET', `/encounters/${e.id}`));
+  assert.deepEqual([chart.notes.length, chart.notes[0].author, chart.conditions.length], [1, 'BS. Trần Minh', 2]);
+  await assert.rejects(pool.query("UPDATE encounter_note SET plan='sửa'"), /append-only/);
+  await assert.rejects(pool.query('DELETE FROM encounter_note'), /append-only/);
+});
 test('bất biến sau toàn bộ test', async () => {
   const q = async sql => (await pool.query(sql)).rows[0];
   assert.equal((await q('SELECT count(*) n FROM drug_stock WHERE qty < 0')).n, 0);

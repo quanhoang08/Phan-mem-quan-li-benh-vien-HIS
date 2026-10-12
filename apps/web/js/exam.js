@@ -44,9 +44,11 @@ V.exam = act(async (id, keep) => {
   <div class="grid"><div>
    ${st === 'REGISTERED' ? `<div class="card"><button onclick="callPt('${id}')">📢 Gọi bệnh nhân${e.call_count ? ` (đã gọi ${e.call_count})` : ''}</button> <button class="p" onclick="startExam()" ${e.exam_unpaid ? 'disabled title="Người bệnh chưa đóng phí khám tại quầy thu ngân"' : ''}>Bắt đầu khám</button>${e.exam_unpaid ? ' <span class="chip bad">Chưa đóng phí khám</span>' : ''} <button onclick="transferEnc('${id}',${e.version},'${esc(e.room_code)}')">Chuyển phòng</button> <button class="d" onclick="cancelEnc('${id}',${e.version})">Hủy lượt</button></div>` : ''}
    ${st === 'RESULTS_READY' ? `<div class="banner info">Đã có đủ kết quả cận lâm sàng. <button class="sm" onclick="callPt('${id}')">📢 Mời bệnh nhân vào lại</button></div>` : ''}
+   ${conditionsCard()}
    <div class="card"><h3>Sinh hiệu</h3><div class="vit">${VF.map(([k, n]) => `<div><label for="v_${k}">${n}</label><input id="v_${k}" type="number" step="any" value="${esc(X.vitals?.[k] ?? '')}" ${dis} oninput="vitalWarn()"></div>`).join('')}</div><div id="vw" style="margin-top:8px"></div></div>
    <div class="card"><h3>Khám lâm sàng</h3><textarea id="exam" aria-label="Khám lâm sàng" ${dis}>${esc(X.exam_text || '')}</textarea><small>Lý do khám: ${esc(e.chief_complaint || '—')}</small></div>
-   <div class="card"><h3>Chẩn đoán (ICD-10)</h3>${ed || amend ? `<div class="row"><div><input id="dxq" list="icdl" aria-label="Tìm mã ICD-10" placeholder="Gõ mã hoặc tên bệnh rồi chọn…" onchange="addDx()"><datalist id="icdl">${CAT.icd.map(i => `<option value="${esc(i.code)} · ${esc(i.name_vi)}">`).join('')}</datalist></div></div>` : ''}<div id="dxlist"></div></div>
+   ${notesCard(ed)}
+   <div class="card"><h3>Chẩn đoán (ICD-10)</h3>${ed || amend ? `<div class="row"><div><input id="dxq" list="icdl" aria-label="Tìm mã ICD-10" placeholder="Gõ mã hoặc tên bệnh rồi chọn…" oninput="icdSearch(this)" onchange="addDx()"><datalist id="icdl">${CAT.icd.map(i => `<option value="${esc(i.code)} · ${esc(i.name_vi)}">`).join('')}</datalist></div></div>` : ''}<div id="dxlist"></div></div>
    <div class="card"><h3>Chỉ định cận lâm sàng</h3>${canOrder ? `${Object.entries(GRP).map(([g, gn]) => { const ss = CAT.services.filter(s => s.grp === g && !X.orders.some(o => o.code === s.code)); return ss.length ? `<div class="svcgrp"><small>${gn}</small><div class="sec">${ss.map(s => `<label><input type="checkbox" class="svc" value="${s.id}" data-code="${esc(s.code)}">${esc(s.name)} <small>${money(s.price)}${s.insurance_covered ? '' : ' · ngoài BHYT'}</small></label>`).join('')}</div></div>` : ''; }).join('')}<button class="p" onclick="orderSvc()">Gửi chỉ định</button>` : st === 'WAITING_SERVICES' && X.orders.some(o => o.status === 'ORDERED') ? '<p class="mut">Đang chờ kết quả cận lâm sàng…</p>' : ''}
     ${X.orders.length ? `<table style="margin-top:12px"><tr><th>Dịch vụ</th><th>Trạng thái</th><th>Kết quả</th><th></th></tr>${X.orders.map(o => `<tr><td>${esc(o.name)}<br><small>${GRP[o.grp] || ''}</small></td>
       <td>${o.status === 'RESULTED' ? '<span class="chip ok">Đã có KQ</span>' : o.status === 'CANCELLED' ? '<span class="chip bad">Đã hủy</span>' : '<span class="chip warn">Chờ thực hiện</span>'}</td>
@@ -287,3 +289,48 @@ function printReferral() {
     <div class="sig"><div></div><div>${dateLine(new Date(d.issued_at))}<br><b>Người hành nghề khám bệnh, chữa bệnh</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${esc(docSigner('REFERRAL_OUT'))}</div></div>`);
 }
 
+// ICD-10 tìm trên server khi gõ (danh mục thật có hàng chục nghìn mã); kết quả bổ sung vào CAT.icd để chọn được
+const icdSearch = async el => {
+  const q = el.value.trim();
+  if (q.length < 2 || q.includes(' · ')) return;
+  const found = await api('GET', '/catalog/icd10?q=' + encodeURIComponent(q)).catch(() => []);
+  found.forEach(i => { if (!CAT.icd.some(x => x.code === i.code)) CAT.icd.push(i); });
+  $('#' + el.getAttribute('list')).innerHTML = found.map(i => `<option value="${esc(i.code)} · ${esc(i.name_vi)}">`).join('');
+};
+
+// Tiền sử và bệnh mạn tính của bệnh nhân (không khóa theo lượt khám); "đã khỏi" ẩn khỏi danh sách chính nhưng không xóa
+const COND = { CHRONIC: 'Bệnh mạn tính', HISTORY: 'Tiền sử bệnh', SURGERY: 'Phẫu thuật', FAMILY: 'Gia đình' };
+function conditionsCard() {
+  const on = X.conditions.filter(k => k.active), off = X.conditions.filter(k => !k.active);
+  const row = k => `<div class="row" style="align-items:center"><div><span class="chip ${k.kind === 'CHRONIC' ? 'warn' : 'mute'}">${COND[k.kind]}</span> ${esc(k.note)}${k.icd10_code ? ` <small>(${esc(k.icd10_code)} ${esc(k.icd10_name || '')})</small>` : ''}${k.since_year ? ` <small>từ ${k.since_year}</small>` : ''}</div>
+    <button class="sm" onclick="setCondition('${k.id}', ${!k.active})">${k.active ? 'Đã khỏi' : 'Còn'}</button></div>`;
+  return `<div class="card" id="condcard"><h3>Tiền sử &amp; bệnh mạn tính</h3>${on.map(row).join('') || '<span class="mut">Chưa ghi nhận</span>'}
+    <div class="row" style="margin-top:10px;align-items:end"><div><label for="cdk">Loại</label><select id="cdk">${Object.entries(COND).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
+      <div style="flex:2"><label for="cdn">Mô tả</label><input id="cdn"></div>
+      <div><label for="cdq">ICD-10 (nếu có)</label><input id="cdq" list="icdl2" oninput="icdSearch(this)"><datalist id="icdl2"></datalist></div>
+      <div><label for="cdy">Từ năm</label><input id="cdy" type="number" min="1900" max="${new Date().getFullYear()}" style="width:90px"></div><button onclick="addCondition()">Thêm</button></div>
+    ${off.length ? `<details style="margin-top:8px"><summary class="mut">Đã khỏi / không còn áp dụng (${off.length})</summary>${off.map(row).join('')}</details>` : ''}</div>`;
+}
+const addCondition = act(async () => {
+  await api('POST', `/patients/${X.patient.id}/conditions`, { kind: $('#cdk').value, note: $('#cdn').value, icd10_code: $('#cdq').value.split(' ')[0] || null, since_year: $('#cdy').value || null });
+  toast('Đã ghi nhận'); await redrawConditions();
+});
+const setCondition = act(async (id, active) => { await api('PATCH', `/conditions/${id}`, { active }); await redrawConditions(); });
+// chỉ vẽ lại thẻ này để không mất phần khám đang gõ dở
+const redrawConditions = async () => { X.conditions = await api('GET', `/patients/${X.patient.id}/conditions`); $('#condcard').outerHTML = conditionsCard(); };
+
+// Ghi chú diễn tiến SOAP: chỉ thêm, không sửa; lưu kèm các nội dung khác đang soạn để không mất
+function notesCard(ed) {
+  const f = (k, n) => `<div><label for="sn_${k}">${n}</label><textarea id="sn_${k}" rows="2"></textarea></div>`;
+  return `<div class="card"><h3>Diễn tiến (SOAP)</h3>${X.notes.map(n => `<div style="border-left:3px solid var(--line,#d5dde3);padding-left:10px;margin-bottom:10px"><small class="mut">${when(n.created_at)} · ${esc(n.author)}</small>
+      ${[['S', n.subjective], ['O', n.objective], ['A', n.assessment], ['P', n.plan]].filter(([, v]) => v).map(([k, v]) => `<div><b>${k}:</b> ${esc(v)}</div>`).join('')}</div>`).join('') || '<span class="mut">Chưa có ghi chú diễn tiến</span>'}
+    ${ed ? `<div class="grid" style="margin-top:10px">${f('subjective', 'S: Triệu chứng người bệnh kể')}${f('objective', 'O: Khám, kết quả')}${f('assessment', 'A: Đánh giá')}${f('plan', 'P: Kế hoạch')}</div>
+      <button style="margin-top:8px" onclick="addNote()">Thêm ghi chú</button> <small class="mut">Ghi chú đã thêm không sửa được; nếu sai, thêm ghi chú mới.</small>` : ''}</div>`;
+}
+const addNote = act(async () => {
+  const b = Object.fromEntries(['subjective', 'objective', 'assessment', 'plan'].map(k => [k, $('#sn_' + k).value]));
+  if (!Object.values(b).some(v => v.trim())) return toast('Nhập ít nhất một phần S, O, A hoặc P', true);
+  await saveClinical();
+  await api('POST', `/encounters/${XID}/notes`, { ...b, version: X.encounter.version });
+  toast('Đã thêm ghi chú'); V.exam(XID);
+});
