@@ -1,7 +1,8 @@
 import { route, R, D, M } from '../router.js';
 import { AppError, validation, notFound } from '../errors.js';
 import { todayISO } from '../domain/identity.js';
-import { slotTime, shiftEnded, isoWeekday, addDays } from '../domain/schedule.js';
+import { slotTime, slotMinutes, shiftEnded, isoWeekday, addDays } from '../domain/schedule.js';
+import { notify, apptText, apptInfo } from './notify.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_AHEAD_DAYS = 30;
@@ -21,11 +22,13 @@ export async function book(c, { patient_id, session_id, day, reason, channel }) 
   if (await c.db.one("SELECT 1 FROM appointment WHERE patient_id=$1 AND session_id=$2 AND day=$3 AND status IN ('BOOKED','ARRIVED')", patient_id, s.id, day))
     throw new AppError(409, 'APPT_DUPLICATE', 'Bệnh nhân đã có lịch hẹn ở buổi khám này');
   const used = new Set((await c.db.all("SELECT slot_no FROM appointment WHERE session_id=$1 AND day=$2 AND status<>'CANCELLED'", s.id, day)).map(r => r.slot_no));
-  const slot = Array.from({ length: s.capacity }, (_, i) => i + 1).find(n => !used.has(n));
+  const late = day === today ? nowMinutes() : -1; // hôm nay: bỏ các số có giờ dự kiến đã qua
+  const slot = Array.from({ length: s.capacity }, (_, i) => i + 1).find(n => !used.has(n) && slotMinutes(s.shift, n, s.capacity) >= late);
   if (!slot) throw new AppError(409, 'SESSION_FULL', 'Buổi khám đã hết chỗ');
   const a = await c.db.one('INSERT INTO appointment(patient_id,session_id,day,slot_no,reason,channel,booked_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     patient_id, s.id, day, slot, String(reason ?? '').trim() || null, channel, c.user?.id ?? null);
   await c.audit('BOOK_APPOINTMENT', 'appointment', a.id, { patient_id, detail: { session_id: s.id, day, slot_no: slot, channel } });
+  await notify(c, patient_id, 'APPT_BOOKED', a.id, apptText('APPT_BOOKED', await apptInfo(c.db, a.id))); // BR-NOTI-2
   c.status = 201;
   return { ...a, time: slotTime(s.shift, slot, s.capacity) };
 }
@@ -35,6 +38,7 @@ export async function cancelAppointment(c, a, reason) {
   if (a.status !== 'BOOKED') throw new AppError(409, 'APPT_NOT_CANCELLABLE', 'Chỉ hủy được lịch hẹn chưa đến khám');
   await c.db.run("UPDATE appointment SET status='CANCELLED', cancel_reason=$1 WHERE id=$2", reason, a.id);
   await c.audit('CANCEL_APPOINTMENT', 'appointment', a.id, { patient_id: a.patient_id, detail: { reason } });
+  await notify(c, a.patient_id, 'APPT_CANCELLED', a.id, apptText('APPT_CANCELLED', await apptInfo(c.db, a.id)));
   return { id: a.id, status: 'CANCELLED' };
 }
 

@@ -19,7 +19,7 @@ V.appt = act(async () => {
       ${sessions.length ? `<table><tr><th>Phòng</th><th>Buổi</th><th>Bác sĩ</th><th>Đã đặt</th><th></th></tr>${sessions.map(s => `<tr><td><b>${esc(s.room_name)}</b></td><td>${SHIFT[s.shift]}</td><td>${esc(s.doctor_name)}</td>
         <td>${s.booked}/${s.capacity}</td><td>${s.off_id ? `<span class="chip bad" title="${esc(s.off_reason)}">Nghỉ</span>` : s.booked >= s.capacity ? '<span class="chip warn">Hết chỗ</span>'
           : `<button class="sm p" ${chosen ? '' : 'disabled'} onclick="bookAppt('${s.session_id}')">Đặt</button>`}</td></tr>`).join('')}</table>` : empty('Không có buổi khám nào vào ngày này', 'sched')}</div>` : ''}
-    <div class="card"><h3>Lịch hẹn ngày ${dmy(AD)} <span class="chip info">${list.length}</span></h3>
+    <div class="card"><h3>Lịch hẹn ngày ${dmy(AD)} <span class="chip info">${list.length}</span>${future && ME.role === 'RECEPTION' && list.some(a => a.status === 'BOOKED') ? ` <button class="sm" style="float:right" title="Gửi SMS và thông báo trên cổng cho người chưa được nhắc. Hệ thống cũng tự nhắc lịch ngày mai mỗi giờ." onclick="sendReminders()">Gửi nhắc hẹn</button>` : ''}</h3>
       ${list.length ? `<table><tr><th>Giờ</th><th>Số</th><th>Bệnh nhân</th><th>Phòng · Bác sĩ</th><th>Lý do</th><th>Kênh</th><th>Trạng thái</th><th></th></tr>${list.map((a, i) => `<tr><td><b>${a.time}</b></td><td>${a.slot_no}</td>
         <td><b>${esc(a.full_name)}</b><br><small>${esc(a.patient_code)}${a.phone ? ' · ' + esc(a.phone) : ''}</small></td><td>${esc(a.room_name)}<br><small>${esc(a.doctor_name)} · ${a.shift === 'MORNING' ? 'sáng' : 'chiều'}</small></td>
         <td>${esc(a.reason || '—')}${a.cancel_reason ? `<br><small>Hủy: ${esc(a.cancel_reason)}</small>` : ''}</td><td>${a.channel === 'PORTAL' ? 'Cổng bệnh nhân' : 'Quầy'}</td>
@@ -28,6 +28,7 @@ V.appt = act(async () => {
         : empty('Chưa có lịch hẹn nào trong ngày', 'sched')}</div>`);
 });
 
+const sendReminders = act(async () => { const r = await api('POST', '/notifications/reminders', { day: AD }); toast(r.sent ? `Đã gửi nhắc hẹn cho ${r.sent} người` : 'Mọi lịch hẹn ngày này đã được nhắc trước đó'); });
 const setApptDay = d => { if (d) { AD = d; V.appt(); } };
 const searchAppt = act(async () => {
   AP.q = $('#apq').value.trim(); AP.pid = '';

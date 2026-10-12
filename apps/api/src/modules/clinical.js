@@ -6,6 +6,7 @@ import { hashDoc, signatureService } from '../integrations/esign.js';
 import { getEnc, checkVersion, bump, assertEditable, transition, parseVitals, insertVitals, replaceDiagnoses, num, hasPending } from './encounters.js';
 import { todayISO } from '../domain/identity.js';
 import { issueInvoice } from './billing.js';
+import { notify } from './notify.js';
 
 const own = e => ({ patient_id: e.patient_id, encounter_id: e.id });
 
@@ -35,13 +36,13 @@ route('PUT', '/encounters/:id/diagnoses', [D], async c => {
 });
 
 // BR-RX-6: cặp thuốc tương tác trong cùng một đơn (bảng drug_interaction lưu drug_a < drug_b)
-const interactionsOf = (c, ids) => (ids.length < 2 ? [] : c.db.all(`SELECT i.severity, i.note, a.name a_name, b.name b_name
+export const interactionsOf = (c, ids) => (ids.length < 2 ? [] : c.db.all(`SELECT i.severity, i.note, a.name a_name, b.name b_name
   FROM drug_interaction i JOIN drug a ON a.id=i.drug_a JOIN drug b ON b.id=i.drug_b
   WHERE i.drug_a = ANY($1::uuid[]) AND i.drug_b = ANY($1::uuid[]) ORDER BY i.severity, a.name`, ids));
 const interactionError = major => new AppError(409, 'DRUG_INTERACTION',
   `Tương tác thuốc nghiêm trọng: ${major.map(i => `${i.a_name} + ${i.b_name} (${i.note})`).join('; ')}`, { interactions: major });
 
-async function allergyClasses(c, patientId) {
+export async function allergyClasses(c, patientId) {
   return (await c.db.all('SELECT drug_class FROM patient_allergy WHERE patient_id=$1', patientId)).map(a => a.drug_class);
 }
 
@@ -128,6 +129,8 @@ route('POST', '/encounters/:id/finish', [D], async c => {
   await transition(c, e, 'finish', toPharmacy ? 'WAITING_PHARMACY' : 'WAITING_PAYMENT', { set: { finished_at: t, locked_at: t } });
   await signDocs(c, e);
   if (!toPharmacy) await issueInvoice(c, e);
+  if (await c.db.one("SELECT 1 x FROM service_order WHERE encounter_id=$1 AND status='RESULTED' LIMIT 1", e.id)) // BR-NOTI-3: kết quả xem được trên cổng từ lúc này
+    await notify(c, e.patient_id, 'RESULT_READY', e.id, `BV Da khoa HIS mini: Da co ket qua can lam sang luot kham ngay ${e.queue_date.split('-').reverse().join('/')}. Xem tren cong benh nhan.`);
   await c.audit('FINISH', 'encounter', e.id, own(e));
   return { version: e.version, status: e.status };
 });

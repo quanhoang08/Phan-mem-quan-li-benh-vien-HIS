@@ -36,12 +36,15 @@ main h1{margin:4px 0}
 
   <div id="home" hidden>
     <div class="box"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div>Xin chào <b id="who"></b></div><button id="logout">Thoát</button></div></div>
+    <div class="box"><h3 style="margin-top:0">Thông báo <span id="unread"></span></h3><div id="inbox"></div></div>
     <div class="box"><h3 style="margin-top:0">Lịch hẹn của tôi</h3><div id="mine"></div></div>
     <div class="box"><h3 style="margin-top:0">Đặt lịch hẹn mới</h3>
       <div>Chọn ngày khám (14 ngày tới, chỉ hiện ngày còn chỗ)</div><div class="days" id="days"></div>
       <div id="sessions"></div>
       <label for="reason" style="margin-top:12px;display:block">Lý do khám (không bắt buộc)</label><input id="reason">
     </div>
+    <div class="box"><h3 style="margin-top:0">Kết quả cận lâm sàng</h3><p class="mut" style="margin-top:0">Chỉ hiện kết quả của lượt khám bác sĩ đã kết luận. Kết quả cần được bác sĩ giải thích; có dấu hiệu bất thường, vui lòng liên hệ phòng khám.</p>
+      <div id="results"><button id="showResults">Xem kết quả</button></div></div>
   </div>
 </main>
 <script>
@@ -51,6 +54,8 @@ const dmy = d => String(d).split('-').reverse().join('/');
 const SHIFT = { MORNING: 'Sáng 07:00–11:30', AFTERNOON: 'Chiều 13:30–17:00' };
 const DOW = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
 const ST = { BOOKED: ['Chờ đến khám', 'info'], ARRIVED: ['Đã đến', 'ok'], CANCELLED: ['Đã hủy', 'bad'], NO_SHOW: ['Vắng', 'warn'] };
+const NK = { APPT_BOOKED: 'Xác nhận đặt hẹn', APPT_REMINDER: 'Nhắc lịch hẹn', APPT_CANCELLED: 'Hủy lịch hẹn', RESULT_READY: 'Có kết quả' };
+const GRP = { LAB: 'Xét nghiệm', IMAGING: 'Chẩn đoán hình ảnh', FUNCTIONAL: 'Thăm dò chức năng' };
 let token = '', sched = [], day = '';
 
 function say(text, cls = 'bad') { $('#msg').innerHTML = text ? `<div class="banner ${cls}">${esc(text)}</div>` : ''; }
@@ -61,7 +66,7 @@ async function call(method, path, body) {
   return j;
 }
 const guard = fn => async (...a) => { try { say(''); await fn(...a); } catch (e) { say(e.message); } };
-function leave() { token = ''; $('#home').hidden = true; $('#auth').hidden = false; $('#otpBox').hidden = true; $('#otp').value = ''; }
+function leave() { token = ''; $('#results').innerHTML = '<button id="showResults">Xem kết quả</button>'; $('#home').hidden = true; $('#auth').hidden = false; $('#otpBox').hidden = true; $('#otp').value = ''; }
 
 $('#sendOtp').onclick = guard(async () => {
   const r = await call('POST', '/portal/otp', { id_number: $('#cccd').value.trim() });
@@ -78,7 +83,11 @@ $('#logout').onclick = leave;
 
 async function refresh() {
   const t = new Date().toLocaleDateString('sv');
-  const [mine, rows] = await Promise.all([call('GET', '/portal/appointments'), call('GET', `/portal/schedule?from=${t}&days=14`)]);
+  const [mine, rows, inbox] = await Promise.all([call('GET', '/portal/appointments'), call('GET', `/portal/schedule?from=${t}&days=14`), call('GET', '/portal/notifications')]);
+  const unread = inbox.filter(n => !n.read_at).length;
+  $('#unread').innerHTML = unread ? `<span class="chip bad">${unread} mới</span>` : '';
+  $('#inbox').innerHTML = inbox.length ? inbox.slice(0, 10).map(n => `<div style="margin-bottom:8px;${n.read_at ? 'opacity:.7' : 'font-weight:600'}"><small class="mut">${new Date(n.created_at).toLocaleString('vi-VN')} · ${NK[n.kind]}</small><br>${esc(n.body)}</div>`).join('')
+    + (unread ? '<button class="sm" id="markRead">Đánh dấu đã đọc</button>' : '') : '<span class="mut">Chưa có thông báo.</span>';
   $('#mine').innerHTML = mine.length ? `<table><tr><th>Ngày</th><th>Giờ dự kiến</th><th>Phòng · Bác sĩ</th><th>Trạng thái</th><th></th></tr>${mine.map(a => `<tr><td>${dmy(a.day)}</td><td><b>${a.time}</b> (số ${a.slot_no})</td>
     <td>${esc(a.room_name)}<br><small>${esc(a.doctor_name)}</small></td><td><span class="chip ${ST[a.status][1]}">${ST[a.status][0]}</span></td>
     <td>${a.status === 'BOOKED' ? `<button class="sm" data-cancel="${a.id}">Hủy hẹn</button>` : ''}</td></tr>`).join('')}</table>` : '<span class="mut">Bạn chưa có lịch hẹn nào.</span>';
@@ -96,6 +105,15 @@ document.addEventListener('click', guard(async e => {
   if (b.dataset.book) {
     const a = await call('POST', '/portal/appointments', { session_id: b.dataset.book, day, reason: $('#reason').value });
     say(`Đã đặt hẹn ngày ${dmy(a.day)}, số ${a.slot_no}, dự kiến khám lúc ${a.time}. Vui lòng đến quầy tiếp đón và xuất trình căn cước công dân.`, 'ok'); $('#reason').value = ''; await refresh();
+  }
+  if (b.id === 'markRead') { await call('POST', '/portal/notifications/read', {}); await refresh(); }
+  if (b.id === 'showResults') {
+    const list = await call('GET', '/portal/results');
+    $('#results').innerHTML = list.length ? list.map(e => `<div style="margin-bottom:14px"><b>Ngày ${dmy(e.queue_date)}</b> · ${esc(e.room_name)} · ${esc(e.doctor_name || '')}<br><small class="mut">Mã lượt ${esc(e.code)}${e.diagnosis ? ' · Chẩn đoán: ' + esc(e.diagnosis) : ''}</small>
+      <table style="margin-top:6px"><tr><th>Dịch vụ</th><th>Kết quả</th><th></th></tr>${e.results.map(r => `<tr><td>${esc(r.name)}<br><small>${GRP[r.grp] || ''}</small></td>
+        <td>${r.values ? r.values.map(v => `${esc(v.name)}: <b>${v.value}</b> ${esc(v.unit || '')}${v.flag ? (v.flag === 'H' ? ' ↑' : ' ↓') : ''}`).join('<br>') : esc(r.result_text)}</td>
+        <td>${r.is_abnormal ? '<span class="chip bad">Bất thường</span>' : '<span class="chip ok">Bình thường</span>'}</td></tr>`).join('')}</table></div>`).join('')
+      : '<span class="mut">Chưa có kết quả nào đã được bác sĩ kết luận.</span>';
   }
   if (b.dataset.cancel && confirm('Hủy lịch hẹn này?')) { await call('POST', `/portal/appointments/${b.dataset.cancel}/cancel`, {}); say('Đã hủy lịch hẹn', 'ok'); await refresh(); }
 }));

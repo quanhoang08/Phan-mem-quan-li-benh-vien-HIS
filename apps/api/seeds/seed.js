@@ -1,10 +1,12 @@
 // Dữ liệu seed: CHỈ dữ liệu giả (SPEC mục 9, 13). Mật khẩu mọi tài khoản demo: his12345
+// Ngoại lệ: danh mục ICD-10 (icd10.csv) là danh mục công khai của Bộ Y tế, tải bằng icd10-fetch.mjs.
+import fs from 'node:fs';
 import { hashPassword } from '../src/password.js';
 import { normalizeName, benefitRateOf } from '../src/domain/identity.js';
 
 const USERS = [['reception', 'Lễ tân Hoa', 'RECEPTION'], ['doctor', 'BS. Trần Minh', 'DOCTOR'], ['bs_ngoai', 'BS. Nguyễn Hà', 'DOCTOR'], ['bs_nhi', 'BS. Lê Quang', 'DOCTOR'], ['bs_tmh', 'BS. Phạm Thu', 'DOCTOR'], ['bs_da', 'BS. Đỗ An', 'DOCTOR'], ['lab', 'KTV Lê Lan', 'LAB_TECH'], ['pharmacist', 'DS. Phạm Hùng', 'PHARMACIST'],
-  ['cashier', 'Thu ngân Mai', 'CASHIER'], ['manager', 'Quản lý Đức', 'MANAGER'], ['admin', 'Quản trị Bình', 'ADMIN']];
-const ROOMS = [['NOI', 'Phòng Nội'], ['NGOAI', 'Phòng Ngoại'], ['NHI', 'Phòng Nhi'], ['TMH', 'Tai Mũi Họng'], ['DA', 'Da liễu']];
+  ['cashier', 'Thu ngân Mai', 'CASHIER'], ['dieuduong', 'ĐD. Hoàng Yến', 'NURSE'], ['manager', 'Quản lý Đức', 'MANAGER'], ['admin', 'Quản trị Bình', 'ADMIN']];
+const ROOMS = [['NOI', 'Phòng Nội'], ['NGOAI', 'Phòng Ngoại'], ['NHI', 'Phòng Nhi'], ['TMH', 'Tai Mũi Họng'], ['DA', 'Da liễu'], ['CC', 'Phòng Cấp cứu']];
 const ICD = [['J20.9', 'Viêm phế quản cấp, không đặc hiệu'], ['J00', 'Viêm mũi họng cấp (cảm lạnh)'], ['J06.9', 'Nhiễm trùng hô hấp trên cấp'], ['J18.9', 'Viêm phổi'],
   ['J45.9', 'Hen phế quản'], ['A09', 'Tiêu chảy và viêm dạ dày ruột'], ['K29.7', 'Viêm dạ dày'], ['K21.0', 'Trào ngược dạ dày thực quản'], ['I10', 'Tăng huyết áp vô căn'],
   ['E11.9', 'Đái tháo đường típ 2'], ['E78.5', 'Rối loạn lipid máu'], ['M54.5', 'Đau thắt lưng'], ['M79.1', 'Đau cơ'], ['R51', 'Đau đầu'], ['R50.9', 'Sốt, không xác định'],
@@ -36,6 +38,62 @@ const seedAnalytes = async q => { // tuần tự: một client pg không chạy 
   for (const [svc, code, name, unit, lo, hi, sex, a0, a1] of ANALYTES) await q(`INSERT INTO lab_analyte(service_id,code,name,unit,ref_low,ref_high,sex,age_min,age_max,sort)
     SELECT id,$2,$3,$4,$5,$6,$7,$8,$9,$10 FROM service_catalog WHERE code=$1 ON CONFLICT DO NOTHING`, svc, code, name, unit, lo, hi, sex, a0, a1, ORDER.indexOf(code));
 };
+
+// Phòng mổ và dịch vụ phẫu thuật/thủ thuật (giá minh họa). Chạy lại được.
+async function seedProcedures(q) {
+  for (const [code, name] of [['PM1', 'Phòng mổ 1'], ['PM2', 'Phòng mổ 2']]) await q('INSERT INTO operating_room(code,name) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING', code, name);
+  for (const [code, name, price, cov, kind] of [['PT01', 'Cắt ruột thừa nội soi', 9000000, true, 'SURGERY'], ['PT02', 'Mổ lấy thai', 12000000, true, 'SURGERY'], ['PT03', 'Phẫu thuật thoát vị bẹn', 8000000, true, 'SURGERY'],
+    ['TT01', 'Khâu vết thương phần mềm (nhỏ)', 250000, true, 'PROCEDURE'], ['TT02', 'Thay băng, cắt chỉ', 60000, true, 'PROCEDURE'], ['TT03', 'Nội soi dạ dày', 700000, true, 'PROCEDURE']])
+    await q("INSERT INTO service_catalog(code,name,grp,price,insurance_covered,proc_kind) VALUES ($1,$2,'PROCEDURE',$3,$4,$5) ON CONFLICT (code) DO NOTHING", code, name, price, cov, kind);
+}
+
+// Phòng cấp cứu (không có lịch làm việc theo buổi: trực 24/7). Chạy lại được.
+const seedEmergencyRoom = q => q("INSERT INTO room(code,name) VALUES ('CC','Phòng Cấp cứu') ON CONFLICT (code) DO NOTHING");
+
+// Nhà cung cấp mẫu (giả)
+async function seedSuppliers(q) {
+  for (const [code, name, phone] of [['NCC01', 'Công ty Dược phẩm Mẫu A', '0281234567'], ['NCC02', 'Công ty Vật tư Y tế Mẫu B', '0287654321']])
+    await q('INSERT INTO supplier(code,name,phone) VALUES ($1,$2,$3) ON CONFLICT (code) DO NOTHING', code, name, phone);
+}
+
+// Khoa nội trú và giường (dịch vụ ngày giường nhóm BED có giá riêng theo loại giường). Chạy lại được.
+async function seedInpatient(q) {
+  const BEDS = [['BED01', 'Giường nội khoa (ngày)', 'BED', 150000, true], ['BED02', 'Giường ngoại khoa (ngày)', 'BED', 200000, true], ['BED03', 'Giường dịch vụ (ngày)', 'BED', 450000, false]];
+  for (const s of BEDS) await q('INSERT INTO service_catalog(code,name,grp,price,insurance_covered) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (code) DO NOTHING', ...s);
+  for (const [code, name, svc, n] of [['NOITH', 'Khoa Nội tổng hợp', 'BED01', 6], ['NGOAIK', 'Khoa Ngoại', 'BED02', 4], ['DICHVU', 'Khu giường dịch vụ', 'BED03', 2]]) {
+    await q('INSERT INTO ward(code,name) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING', code, name);
+    for (let i = 1; i <= n; i++) await q('INSERT INTO bed(ward_id,code,service_id) SELECT w.id, $2, s.id FROM ward w, service_catalog s WHERE w.code=$1 AND s.code=$3 ON CONFLICT (ward_id, code) DO NOTHING', code, `${code}-${String(i).padStart(2, '0')}`, svc);
+  }
+}
+
+// Lịch mẫu: sáng thứ Hai–Bảy mọi phòng, chiều thứ Hai–Sáu ba phòng đầu; mỗi phòng một bác sĩ cố định. Buổi đã có thì giữ nguyên.
+async function seedSchedule(q) {
+  const DOCS = { NOI: 'doctor', NGOAI: 'bs_ngoai', NHI: 'bs_nhi', TMH: 'bs_tmh', DA: 'bs_da' };
+  for (const [room, doc] of Object.entries(DOCS)) {
+    for (const [shift, days, rooms] of [['MORNING', 6, ['NOI', 'NGOAI', 'NHI', 'TMH', 'DA']], ['AFTERNOON', 5, ['NOI', 'NGOAI', 'NHI']]]) {
+      if (!rooms.includes(room)) continue;
+      for (let wd = 1; wd <= days; wd++)
+        await q('INSERT INTO schedule_session(room_id,doctor_id,weekday,shift,capacity) SELECT r.id, u.id, $3, $4, 30 FROM room r, app_user u WHERE r.code=$1 AND u.username=$2 ON CONFLICT DO NOTHING', room, doc, wd, shift);
+    }
+  }
+}
+
+// CSV "code,name_vi" (ô có dấu phẩy/ngoặc kép thì bọc ngoặc kép). Thêm mã mới, cập nhật tên mã đã có; không xóa mã (đã được tham chiếu).
+export function parseIcdCsv(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/).slice(1)) {
+    const m = line.match(/^([^,]+),(?:"((?:[^"]|"")*)"|(.*))$/);
+    if (m) rows.push([m[1].trim(), (m[2] !== undefined ? m[2].replace(/""/g, '"') : m[3]).trim()]);
+  }
+  return rows.filter(([c, n]) => /^[A-Z]\d{2}(\.\d{1,2})?$/.test(c) && n);
+}
+export async function importIcd10(q, file = new URL('./icd10.csv', import.meta.url)) {
+  if (!fs.existsSync(file)) return 0;
+  const rows = parseIcdCsv(fs.readFileSync(file, 'utf8'));
+  await q(`INSERT INTO icd10(code,name_vi) SELECT * FROM unnest($1::text[], $2::text[])
+    ON CONFLICT (code) DO UPDATE SET name_vi=EXCLUDED.name_vi`, rows.map(r => r[0]), rows.map(r => r[1]));
+  return rows.length;
+}
 
 const isoDays = n => new Date(Date.now() + n * 864e5).toLocaleDateString('sv');
 
@@ -76,7 +134,8 @@ async function seedPatients(q, list, Y) {
 export async function seed(client) {
   const q = (sql, ...p) => client.query(sql, p);
   if ((await q('SELECT 1 FROM app_user LIMIT 1')).rowCount) {
-    await seedAnalytes(q); await seedInteractions(q);
+    for (const [u, n, r] of USERS) await q('INSERT INTO app_user(username,full_name,password_hash,role) VALUES ($1,$2,$3,$4) ON CONFLICT (username) DO NOTHING', u, n, hashPassword('his12345'), r);
+    await seedAnalytes(q); await seedInteractions(q); await seedSchedule(q); await seedInpatient(q); await seedSuppliers(q); await seedEmergencyRoom(q); await seedProcedures(q); await importIcd10(q);
     return `Đã có dữ liệu, chỉ bổ sung danh mục chỉ số xét nghiệm, tương tác thuốc và ${await seedPatients(q, extraPatients(new Date().getFullYear()), new Date().getFullYear())} bệnh nhân mẫu mới`;
   }
   const Y = new Date().getFullYear();
@@ -96,16 +155,12 @@ export async function seed(client) {
 
   for (const [u, n, r] of USERS) await q('INSERT INTO app_user(username,full_name,password_hash,role) VALUES ($1,$2,$3,$4)', u, n, hashPassword('his12345'), r);
   for (const r of ROOMS) await q('INSERT INTO room(code,name) VALUES ($1,$2)', ...r);
-  // Lịch mẫu: sáng thứ Hai–Bảy mọi phòng, chiều thứ Hai–Sáu ba phòng đầu; mỗi phòng một bác sĩ cố định
-  const DOCS = { NOI: 'doctor', NGOAI: 'bs_ngoai', NHI: 'bs_nhi', TMH: 'bs_tmh', DA: 'bs_da' };
-  for (const [room, doc] of Object.entries(DOCS)) {
-    for (const [shift, days, rooms] of [['MORNING', 6, ['NOI', 'NGOAI', 'NHI', 'TMH', 'DA']], ['AFTERNOON', 5, ['NOI', 'NGOAI', 'NHI']]]) {
-      if (!rooms.includes(room)) continue;
-      for (let wd = 1; wd <= days; wd++)
-        await q('INSERT INTO schedule_session(room_id,doctor_id,weekday,shift,capacity) SELECT r.id, u.id, $3, $4, 30 FROM room r, app_user u WHERE r.code=$1 AND u.username=$2', room, doc, wd, shift);
-    }
-  }
-  for (const r of ICD) await q('INSERT INTO icd10(code,name_vi) VALUES ($1,$2)', ...r);
+  await seedSchedule(q);
+  await seedInpatient(q);
+  await seedSuppliers(q);
+  await seedProcedures(q);
+  for (const r of ICD) await q('INSERT INTO icd10(code,name_vi,common) VALUES ($1,$2,true)', ...r); // các mã mẫu là mã thường dùng
+  await importIcd10(q); // danh mục đầy đủ (nếu có file) ghi đè tên của các mã mẫu
   for (const s of SERVICES) await q('INSERT INTO service_catalog(code,name,grp,price,insurance_covered) VALUES ($1,$2,$3,$4,$5)', ...s);
   for (const [code, name, unit, cls, price, cov, qty] of DRUGS) {
     const { rows: [d] } = await q('INSERT INTO drug(code,name,unit,allergy_class,price,insurance_covered) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', code, name, unit, cls, price, cov);

@@ -15,7 +15,11 @@
     "test": "node --env-file=.env.test --test --test-concurrency=1 apps/api/test/*.test.js",
     "test:e2e": "playwright test -c e2e/playwright.config.js",
     "db:backup": "docker compose exec -T db pg_dump -U his his > backup.sql",
-    "db:restore": "docker compose exec -T db psql -U his -d his < backup.sql"
+    "db:restore": "docker compose exec -T db psql -U his -d his < backup.sql",
+    "load:setup": "node --env-file=.env.load apps/api/src/cli.js reset && node --env-file=.env.load apps/api/seeds/bulk.js",
+    "load:seed": "node --env-file=.env.load apps/api/seeds/bulk.js",
+    "load:run": "node --env-file=.env.load apps/api/loadtest/run.js",
+    "load:start": "node --env-file=.env.load apps/api/src/server.js"
   },
   "dependencies": {
     "pg": "^8.13.0"

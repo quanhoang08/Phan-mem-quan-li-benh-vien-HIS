@@ -1,7 +1,7 @@
 // Quản trị: tài khoản và danh mục (dịch vụ, thuốc, ICD-10). Sửa trực tiếp trên dòng, mỗi dòng một nút Lưu.
 const ADM = {
   users: { title: 'Tài khoản' },
-  services: { title: 'Dịch vụ', key: 'id', cols: [['code', 'Mã', 'text'], ['name', 'Tên', 'text'], ['grp', 'Nhóm', 'grp'], ['price', 'Giá (đồng)', 'num'], ['insurance_covered', 'BHYT', 'bool'], ['active', 'Hoạt động', 'bool']] },
+  services: { title: 'Dịch vụ', key: 'id', cols: [['code', 'Mã', 'text'], ['name', 'Tên', 'text'], ['grp', 'Nhóm', 'grp'], ['price', 'Giá (đồng)', 'num'], ['insurance_covered', 'BHYT', 'bool'], ['proc_kind', 'Loại PT/TT', 'text'], ['active', 'Hoạt động', 'bool']] },
   drugs: { title: 'Thuốc', key: 'id', cols: [['code', 'Mã', 'text'], ['name', 'Tên', 'text'], ['unit', 'Đơn vị', 'text'], ['allergy_class', 'Nhóm dị ứng', 'text'], ['price', 'Giá (đồng)', 'num'], ['insurance_covered', 'BHYT', 'bool'], ['reorder_level', 'Mức đặt lại', 'num'], ['active', 'Hoạt động', 'bool']] },
   icd10: { title: 'ICD-10', key: 'code', cols: [['code', 'Mã', 'text'], ['name_vi', 'Tên tiếng Việt', 'text']] },
   analytes: { title: 'Khoảng tham chiếu XN' },
@@ -12,7 +12,7 @@ let AT = 'users', AROWS = [];
 const cell = (r, [col, , type], v) => {
   const id = `a-${r}-${col}`;
   if (type === 'bool') return `<input type="checkbox" id="${id}" ${v || r === 'new' && col === 'active' ? 'checked' : ''}>`;
-  if (type === 'grp') return `<select id="${id}">${['EXAM', 'LAB', 'IMAGING', 'FUNCTIONAL'].map(g => `<option ${v === g ? 'selected' : ''}>${g}</option>`).join('')}</select>`;
+  if (type === 'grp') return `<select id="${id}">${['EXAM', 'LAB', 'IMAGING', 'FUNCTIONAL', 'BED', 'PROCEDURE'].map(g => `<option ${v === g ? 'selected' : ''}>${g}</option>`).join('')}</select>`;
   return `<input id="${id}" ${type === 'num' ? 'type="number" min="0"' : ''} value="${esc(v ?? '')}">`;
 };
 const readRow = r => Object.fromEntries(ADM[AT].cols.map(([col, , type]) => {
@@ -25,11 +25,12 @@ V.admin = act(async () => {
   if (AT === 'users') {
     AROWS = await api('GET', '/admin/users');
     const roleSel = (id, v) => `<select id="${id}">${ROLE_KEYS.map(r => `<option value="${r}" ${v === r ? 'selected' : ''}>${ROLE[r]}</option>`).join('')}</select>`;
-    return main(`<h2>Quản trị</h2>${tabs}<div class="card"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Hoạt động</th><th>Mật khẩu mới</th><th></th></tr>
+    return main(`<h2>Quản trị</h2>${tabs}<div class="card"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Hoạt động</th><th>Mật khẩu mới</th><th>Bảo mật</th><th></th></tr>
       <tr><td><input id="u-new-username" placeholder="vd: doctor2"></td><td><input id="u-new-full_name"></td><td>${roleSel('u-new-role', 'DOCTOR')}</td><td></td>
-        <td><input id="u-new-password" type="password" placeholder="tối thiểu 8 ký tự"></td><td><button class="p" onclick="createUser()">Thêm</button></td></tr>
+        <td><input id="u-new-password" type="password" placeholder="tối thiểu 8 ký tự"></td><td></td><td><button class="p" onclick="createUser()">Thêm</button></td></tr>
       ${AROWS.map((u, i) => `<tr><td>${esc(u.username)}</td><td><input id="u-${i}-full_name" value="${esc(u.full_name)}"></td><td>${roleSel(`u-${i}-role`, u.role)}</td>
         <td><input type="checkbox" id="u-${i}-active" ${u.active ? 'checked' : ''}></td><td><input id="u-${i}-password" type="password" placeholder="để trống nếu giữ"></td>
+        <td>${u.locked ? `<span class="chip bad" title="Khóa đến ${when(u.locked_until)}">Đang khóa</span> <button class="sm" onclick="unlockUser('${u.id}')">Mở khóa</button>` : ''} ${u.totp_enabled ? `<span class="chip ok">2 lớp</span> <button class="sm" onclick="resetTotp('${u.id}')">Đặt lại</button>` : '<span class="chip mute">1 lớp</span>'}</td>
         <td><button onclick="saveUser(${i})">Lưu</button></td></tr>`).join('')}</table></div>`);
   }
   if (AT === 'analytes') return renderAnalytes(tabs);

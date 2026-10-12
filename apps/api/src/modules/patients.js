@@ -28,6 +28,7 @@ route('GET', '/patients', 'any', async c => {
 route('GET', '/patients/lookup', [R, D], async c => { // BR-ID-4: trả hồ sơ cũ để điền sẵn
   const p = await c.db.one('SELECT * FROM patient WHERE id_type=$1 AND id_number=$2', c.q.idType, c.q.idNumber);
   if (!p) return { patient: null };
+  await c.audit('PATIENT_LOOKUP', 'patient', p.id, { patient_id: p.id }); // BR-AUD-2
   return {
     patient: patientView(p, c.user.role),
     allergies: (await c.db.all('SELECT drug_class FROM patient_allergy WHERE patient_id=$1', p.id)).map(a => a.drug_class),

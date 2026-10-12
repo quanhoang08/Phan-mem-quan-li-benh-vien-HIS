@@ -22,6 +22,27 @@ route('GET', '/pharmacy/queue', [P], async c => {
   return rows;
 });
 
+// Xuất kho một thuốc theo lô FEFO, ghi sổ kho. Gọi theo thứ tự drug_id tăng dần trong một giao dịch (tránh deadlock);
+// thiếu thuốc thì ném lỗi để hoàn tác cả giao dịch. Dùng chung cho đơn ngoại trú và y lệnh nội trú.
+export async function takeStock(c, drugId, n, refType, refId) {
+  await c.db.one('SELECT qty FROM drug_stock WHERE drug_id=$1 FOR UPDATE', drugId);
+  const lots = await c.db.all('SELECT id, expiry_date, qty FROM drug_lot WHERE drug_id=$1 ORDER BY expiry_date, id FOR UPDATE', drugId);
+  const { picks, usable } = allocateFefo(lots, n, todayISO());
+  if (!picks.length) {
+    const d = await c.db.one('SELECT name FROM drug WHERE id=$1', drugId);
+    throw new AppError(409, 'INSUFFICIENT_STOCK', `Không đủ tồn kho ${d.name}: cần ${n}, còn ${usable}`, { drug: d.name, need: n, have: usable });
+  }
+  for (const p of picks) {
+    await c.db.run('UPDATE drug_lot SET qty=qty-$1 WHERE id=$2', p.qty, p.lot_id);
+    await c.db.run("INSERT INTO stock_movement(drug_id,lot_id,delta,reason,ref_type,ref_id,actor_id) VALUES ($1,$2,$3,'DISPENSE',$4,$5,$6)", drugId, p.lot_id, -p.qty, refType, refId, c.user.id);
+  }
+  await c.db.run('UPDATE drug_stock SET qty=qty-$1 WHERE drug_id=$2', n, drugId);
+}
+export const lowStockEvents = async (c, drugIds) => {
+  for (const low of await c.db.all('SELECT d.id, d.name, s.qty FROM drug d JOIN drug_stock s ON s.drug_id=d.id WHERE d.id = ANY($1::uuid[]) AND s.qty < d.reorder_level', drugIds))
+    c.emit('StockLow', { drug_id: low.id, name: low.name, qty: low.qty });
+};
+
 // S9: cấp phát nguyên tử (BR-RX-3, SPEC 5.4): gom theo thuốc, sắp theo drug_id, UPDATE có điều kiện; thiếu một thuốc là hoàn tác cả giao dịch
 route('POST', '/prescriptions/:id/dispense', [P], async c => {
   const head = await c.db.one('SELECT encounter_id FROM prescription WHERE id=$1', c.p.id);
@@ -33,27 +54,11 @@ route('POST', '/prescriptions/:id/dispense', [P], async c => {
 
   // thuốc mua ngoài (BR-RX-7) không cấp phát, không trừ kho
   const need = await c.db.all("SELECT drug_id, sum(quantity)::int n FROM prescription_line WHERE prescription_id=$1 AND source='HOSPITAL' GROUP BY drug_id ORDER BY drug_id", rx.id);
-  // Khóa dòng tồn rồi các lô theo thứ tự drug_id (tránh deadlock), chọn lô FEFO; thiếu một thuốc là hoàn tác cả giao dịch
-  const today = todayISO();
-  for (const { drug_id, n } of need) {
-    await c.db.one('SELECT qty FROM drug_stock WHERE drug_id=$1 FOR UPDATE', drug_id);
-    const lots = await c.db.all('SELECT id, expiry_date, qty FROM drug_lot WHERE drug_id=$1 ORDER BY expiry_date, id FOR UPDATE', drug_id);
-    const { picks, usable } = allocateFefo(lots, n, today);
-    if (!picks.length) {
-      const d = await c.db.one('SELECT name FROM drug WHERE id=$1', drug_id);
-      throw new AppError(409, 'INSUFFICIENT_STOCK', `Không đủ tồn kho ${d.name}: cần ${n}, còn ${usable}`, { drug: d.name, need: n, have: usable });
-    }
-    for (const p of picks) {
-      await c.db.run('UPDATE drug_lot SET qty=qty-$1 WHERE id=$2', p.qty, p.lot_id);
-      await c.db.run("INSERT INTO stock_movement(drug_id,lot_id,delta,reason,ref_type,ref_id,actor_id) VALUES ($1,$2,$3,'DISPENSE','prescription',$4,$5)", drug_id, p.lot_id, -p.qty, rx.id, c.user.id);
-    }
-    await c.db.run('UPDATE drug_stock SET qty=qty-$1 WHERE drug_id=$2', n, drug_id);
-  }
+  for (const { drug_id, n } of need) await takeStock(c, drug_id, n, 'prescription', rx.id);
   await c.db.run("UPDATE prescription SET status='DISPENSED', dispensed_by=$1, dispensed_at=now() WHERE id=$2", c.user.id, rx.id);
   await transition(c, e, 'dispense', 'WAITING_PAYMENT');
   await issueInvoice(c, e);
-  for (const low of await c.db.all('SELECT d.id, d.name, s.qty FROM drug d JOIN drug_stock s ON s.drug_id=d.id WHERE d.id = ANY($1::uuid[]) AND s.qty < d.reorder_level', need.map(x => x.drug_id)))
-    c.emit('StockLow', { drug_id: low.id, name: low.name, qty: low.qty });
+  await lowStockEvents(c, need.map(x => x.drug_id));
   await c.audit('DISPENSE', 'prescription', rx.id, { patient_id: e.patient_id, encounter_id: e.id });
   return { status: e.status };
 });
@@ -117,22 +122,23 @@ route('GET', '/inventory', [P, M, D], async c => {
   return rows;
 });
 
-// Nhập kho theo lô: bắt buộc số lô và hạn dùng còn hiệu lực; nhập thêm vào lô cũ thì hạn dùng phải khớp
-route('POST', '/inventory/receipts', [P], async c => {
-  const n = Number(c.b.qty), lotNo = String(c.b.lot_no ?? '').trim().toUpperCase(), exp = String(c.b.expiry_date ?? '');
+// Nhập kho một lô: bắt buộc số lô và hạn dùng còn hiệu lực; nhập thêm vào lô cũ thì hạn dùng phải khớp. Dùng cho phiếu nhập kho và nhận hàng mua.
+export async function receiveLot(c, drugId, n, lotNoRaw, expRaw) {
+  const lotNo = String(lotNoRaw ?? '').trim().toUpperCase(), exp = String(expRaw ?? '');
   if (!Number.isInteger(n) || n < 1 || n > 100000) throw validation('Số lượng phải là số nguyên dương');
   if (!/^[A-Z0-9-]{2,30}$/.test(lotNo)) throw validation('Số lô chỉ gồm chữ, số, dấu gạch (2–30 ký tự)');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) throw validation('Hạn dùng không hợp lệ');
   if (exp <= todayISO()) throw validation('Không nhập lô đã hết hạn hoặc hết hạn hôm nay');
-  const r = await c.db.run('UPDATE drug_stock SET qty=qty+$1 WHERE drug_id=$2', n, c.b.drug_id);
+  const r = await c.db.run('UPDATE drug_stock SET qty=qty+$1 WHERE drug_id=$2', n, drugId);
   if (r.rowCount === 0) throw notFound('thuốc');
   const lot = await c.db.one(`INSERT INTO drug_lot(drug_id,lot_no,expiry_date,qty) VALUES ($1,$2,$3,$4)
-    ON CONFLICT (drug_id,lot_no) DO UPDATE SET qty=drug_lot.qty+EXCLUDED.qty WHERE drug_lot.expiry_date=EXCLUDED.expiry_date RETURNING id`, c.b.drug_id, lotNo, exp, n);
+    ON CONFLICT (drug_id,lot_no) DO UPDATE SET qty=drug_lot.qty+EXCLUDED.qty WHERE drug_lot.expiry_date=EXCLUDED.expiry_date RETURNING id`, drugId, lotNo, exp, n);
   if (!lot) throw new AppError(409, 'LOT_EXPIRY_MISMATCH', `Lô ${lotNo} đã có với hạn dùng khác`);
-  await c.db.run("INSERT INTO stock_movement(drug_id,lot_id,delta,reason,actor_id) VALUES ($1,$2,$3,'RECEIPT',$4)", c.b.drug_id, lot.id, n, c.user.id);
-  await c.audit('RECEIPT', 'drug', c.b.drug_id, { detail: { qty: n, lot_no: lotNo, expiry_date: exp } });
-  return { ok: true, lot_id: lot.id };
-});
+  await c.db.run("INSERT INTO stock_movement(drug_id,lot_id,delta,reason,actor_id) VALUES ($1,$2,$3,'RECEIPT',$4)", drugId, lot.id, n, c.user.id);
+  await c.audit('RECEIPT', 'drug', drugId, { detail: { qty: n, lot_no: lotNo, expiry_date: exp } });
+  return lot.id;
+}
+route('POST', '/inventory/receipts', [P], async c => ({ ok: true, lot_id: await receiveLot(c, c.b.drug_id, Number(c.b.qty), c.b.lot_no, c.b.expiry_date) }));
 
 // Hủy lô hết hạn: trừ toàn bộ số còn lại của lô, ghi sổ kho ADJUST kèm lý do
 route('POST', '/inventory/lots/:id/dispose', [P], async c => {

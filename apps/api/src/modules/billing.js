@@ -8,7 +8,7 @@ import { config } from '../config.js';
 
 // BR-BILL-5/6: lượt khám không được BHYT chi trả (mức hưởng chụp 0%) phải đóng phí khám trước khi vào khám
 // và tiền chỉ định CLS trước khi thực hiện
-export const needsPrepay = e => e.benefit_rate_snapshot === 0;
+export const needsPrepay = e => e.benefit_rate_snapshot === 0 && !e.emergency; // BR-ER-2: cấp cứu khám và làm cận lâm sàng trước, thanh toán sau
 
 // S10: MỘT hàm lập hóa đơn dùng chung cho S8 (không thuốc), S9 (có thuốc) và lập lại sau khi hủy (BR-BILL-4).
 // Gồm phí khám, chỉ định RESULTED (bỏ CANCELLED), thuốc đã cấp tại viện; dùng giá chụp và mức hưởng chụp (BR-BILL-1, BR-INS-3).
@@ -25,6 +25,9 @@ export async function issueInvoice(c, e) {
     lines.push({ kind: 'SERVICE', ref_id: o.id, name: o.name, qty: 1, unit_price: o.price_snapshot, covered: o.covered_snapshot });
     if (o.prepayment_id) prepaidIds.add(o.id);
   }
+  // phẫu thuật/thủ thuật đã thực hiện tại lượt khám ngoại trú (BR-PROC-5)
+  for (const p of await c.db.all("SELECT p.id, p.price_snapshot, p.covered_snapshot, p.code, s.name FROM procedure_case p JOIN service_catalog s ON s.id=p.service_id WHERE p.encounter_id=$1 AND p.admission_id IS NULL AND p.status='DONE' ORDER BY p.ended_at", e.id))
+    lines.push({ kind: 'PROCEDURE', ref_id: p.id, name: `${p.name} (${p.code})`, qty: 1, unit_price: p.price_snapshot, covered: p.covered_snapshot });
   // thuốc người bệnh đã trả lại (BR-RX-8) không tính tiền
   for (const l of await c.db.all("SELECT l.id, l.quantity-l.returned_qty qty, l.price_snapshot, l.covered_snapshot, d.name FROM prescription_line l JOIN prescription p ON p.id=l.prescription_id JOIN drug d ON d.id=l.drug_id WHERE p.encounter_id=$1 AND p.status='DISPENSED' AND l.source='HOSPITAL' AND l.quantity>l.returned_qty ORDER BY d.name", e.id))
     lines.push({ kind: 'DRUG', ref_id: l.id, name: l.name, qty: l.qty, unit_price: l.price_snapshot, covered: l.covered_snapshot });
@@ -49,24 +52,26 @@ export async function reissueInvoice(c, e) {
 }
 
 // BR-SHIFT-1: mọi khoản thu/hoàn ghi vào ca đang mở của người thao tác. FOR SHARE: đóng ca (FOR UPDATE) phải chờ các khoản đang ghi.
-async function currentShift(c) {
+export async function currentShift(c) {
   const s = await c.db.one('SELECT * FROM cashier_shift WHERE cashier_id=$1 AND closed_at IS NULL FOR SHARE', c.user.id);
   if (!s) throw new AppError(409, 'SHIFT_NOT_OPEN', 'Chưa mở ca thu ngân. Mở ca trước khi thu hoặc hoàn tiền');
   return s;
 }
-const checkMethod = m => { if (!METHODS.includes(m)) throw validation('Phương thức thanh toán không hợp lệ'); };
-const idemKey = c => { const k = c.h['idempotency-key']; if (!k) throw validation('Thiếu header Idempotency-Key'); return k; };
+export const checkMethod = m => { if (!METHODS.includes(m)) throw validation('Phương thức thanh toán không hợp lệ'); };
+export const idemKey = c => { const k = c.h['idempotency-key']; if (!k) throw validation('Thiếu header Idempotency-Key'); return k; };
 
 route('GET', '/billing/queue', [C, M], c => c.db.all(`SELECT i.id, i.total, i.insurance_amount, i.patient_amount, i.prepaid_amount, i.patient_amount-i.prepaid_amount due, e.code enc_code, p.code patient_code, p.full_name
   FROM invoice i JOIN encounter e ON e.id=i.encounter_id JOIN patient p ON p.id=e.patient_id
-  WHERE i.status='OPEN' AND e.status='WAITING_PAYMENT' ORDER BY i.created_at`));
+  WHERE i.status='OPEN' AND (i.admission_id IS NOT NULL OR e.status='WAITING_PAYMENT') ORDER BY i.created_at`));
 
 route('GET', '/invoices/:id', [C, M], async c => {
   const i = await c.db.one('SELECT i.*, i.patient_amount-i.prepaid_amount due, e.code enc_code, e.benefit_rate_snapshot card_rate, e.route, e.referral_no, p.full_name, p.code patient_code FROM invoice i JOIN encounter e ON e.id=i.encounter_id JOIN patient p ON p.id=e.patient_id WHERE i.id=$1', c.p.id);
   if (!i) throw notFound('hóa đơn');
-  return { ...i, lines: await c.db.all("SELECT * FROM invoice_line WHERE invoice_id=$1 ORDER BY array_position(ARRAY['EXAM','CONSULT','SERVICE','DRUG'], kind), name", i.id),
+  return { ...i, lines: await c.db.all("SELECT * FROM invoice_line WHERE invoice_id=$1 ORDER BY array_position(ARRAY['EXAM','CONSULT','SERVICE','PROCEDURE','BED','DRUG'], kind), name", i.id),
     payments: await c.db.all('SELECT p.*, u.full_name cashier FROM payment p LEFT JOIN app_user u ON u.id=p.cashier_id WHERE p.invoice_id=$1 ORDER BY p.paid_at', i.id),
-    prepayments: await c.db.all('SELECT x.amount, x.method, x.paid_at, u.full_name cashier FROM prepayment x JOIN app_user u ON u.id=x.cashier_id WHERE x.encounter_id=$1 ORDER BY x.paid_at', i.encounter_id),
+    prepayments: i.admission_id
+      ? await c.db.all('SELECT x.amount, x.method, x.paid_at, u.full_name cashier FROM admission_deposit x JOIN app_user u ON u.id=x.cashier_id WHERE x.admission_id=$1 AND x.amount>0 ORDER BY x.paid_at', i.admission_id)
+      : await c.db.all('SELECT x.amount, x.method, x.paid_at, u.full_name cashier FROM prepayment x JOIN app_user u ON u.id=x.cashier_id WHERE x.encounter_id=$1 ORDER BY x.paid_at', i.encounter_id),
     refund: (await c.db.one('SELECT r.amount, r.method, r.reason, r.at, u.full_name cashier FROM refund r JOIN app_user u ON u.id=r.cashier_id WHERE r.invoice_id=$1', i.id)) ?? null,
     refund_request: (await c.db.one(`SELECT q.id, q.status, q.reason, q.decision_note, q.requested_at, q.decided_at, ud.full_name decided_by
       FROM refund_request q LEFT JOIN app_user ud ON ud.id=q.decided_by WHERE q.invoice_id=$1 ORDER BY q.requested_at DESC LIMIT 1`, i.id)) ?? null,
@@ -92,6 +97,14 @@ route('POST', '/invoices/:id/payments', [C], async c => {
 
   const pay = await c.db.one('INSERT INTO payment(invoice_id,method,amount,idempotency_key,cashier_id,shift_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *', inv.id, c.b.method, due, key, c.user.id, shift.id);
   await c.db.run("UPDATE invoice SET status='PAID' WHERE id=$1", inv.id);
+  if (inv.admission_id) { // BR-IP-7: hóa đơn ra viện: tạm ứng thừa được hoàn lại cùng ca, đợt điều trị chuyển PAID; lượt khám ngoại trú không đổi
+    const dep = (await c.db.one('SELECT coalesce(sum(amount),0)::bigint s FROM admission_deposit WHERE admission_id=$1', inv.admission_id)).s, extra = dep - inv.prepaid_amount;
+    if (extra > 0) await c.db.run('INSERT INTO admission_deposit(admission_id,amount,method,shift_id,cashier_id) VALUES ($1,$2,$3,$4,$5)', inv.admission_id, -extra, 'CASH', shift.id, c.user.id);
+    await c.db.run("UPDATE admission SET status='PAID' WHERE id=$1", inv.admission_id);
+    const a = await c.db.one('SELECT patient_id, encounter_id FROM admission WHERE id=$1', inv.admission_id);
+    await c.audit('PAY', 'invoice', inv.id, { patient_id: a.patient_id, encounter_id: a.encounter_id, detail: { amount: due, method: c.b.method, admission: true, deposit_refunded: extra > 0 ? extra : undefined } });
+    return { payment: pay, replayed: false, deposit_refund: Math.max(extra, 0) };
+  }
   const e = await getEnc(c, inv.encounter_id);
   await transition(c, e, 'pay', 'COMPLETED', { set: { completed_at: new Date() } });
   await c.audit('PAY', 'invoice', inv.id, { patient_id: e.patient_id, encounter_id: e.id, detail: { amount: due, method: c.b.method } });
@@ -135,6 +148,7 @@ route('POST', '/refund-requests', [C], async c => {
     const inv = await c.db.one('SELECT * FROM invoice WHERE id=$1 FOR UPDATE', c.b.invoice_id);
     if (!inv) throw notFound('hóa đơn');
     if (inv.status !== 'PAID') throw new AppError(409, 'INVOICE_STATE_INVALID', 'Chỉ hủy được hóa đơn đã thu tiền');
+    if (inv.admission_id) throw new AppError(409, 'INVOICE_STATE_INVALID', 'Hóa đơn ra viện nội trú không hủy qua luồng ngoại trú');
     const pay = await c.db.one('SELECT * FROM payment WHERE invoice_id=$1', inv.id);
     row = { encounter_id: inv.encounter_id, invoice_id: inv.id, amount: pay.amount, method: pay.method, kind: 'INVOICE' };
   } else if (c.b.prepayment_id) {
@@ -219,14 +233,14 @@ route('POST', '/refund-requests/:id/execute', [C], async c => {
 route('GET', '/billing/prepay-queue', [C, M], async c => {
   const rows = await c.db.all(`SELECT o.id, o.price_snapshot price, s.code, s.name, o.ordered_at, e.id encounter_id, e.code enc_code, p.code patient_code, p.full_name
     FROM service_order o JOIN service_catalog s ON s.id=o.service_id JOIN encounter e ON e.id=o.encounter_id JOIN patient p ON p.id=e.patient_id
-    WHERE o.status='ORDERED' AND o.prepayment_id IS NULL AND e.benefit_rate_snapshot=0 ORDER BY o.ordered_at, s.code`); // điều kiện = needsPrepay
+    WHERE o.status='ORDERED' AND o.prepayment_id IS NULL AND e.benefit_rate_snapshot=0 AND NOT e.emergency ORDER BY o.ordered_at, s.code`); // điều kiện = needsPrepay
   // BR-BILL-6: phí khám của người đang chờ khám chưa đóng
   const exams = await c.db.all(`SELECT e.id encounter_id, e.code enc_code, p.code patient_code, p.full_name, e.exam_price_snapshot price, e.registered_at
-    FROM encounter e JOIN patient p ON p.id=e.patient_id WHERE e.status='REGISTERED' AND e.benefit_rate_snapshot=0 AND e.exam_prepayment_id IS NULL ORDER BY e.registered_at`);
+    FROM encounter e JOIN patient p ON p.id=e.patient_id WHERE e.status='REGISTERED' AND e.benefit_rate_snapshot=0 AND NOT e.emergency AND e.exam_prepayment_id IS NULL ORDER BY e.registered_at`);
   // phí khám thêm chuyên khoa đang chờ (BR-BILL-5)
   const consults = await c.db.all(`SELECT k.id, k.price_snapshot price, k.nth, r.name, k.ordered_at, e.id encounter_id, e.code enc_code, p.code patient_code, p.full_name
     FROM encounter_consult k JOIN room r ON r.id=k.room_id JOIN encounter e ON e.id=k.encounter_id JOIN patient p ON p.id=e.patient_id
-    WHERE k.status='ORDERED' AND k.prepayment_id IS NULL AND e.benefit_rate_snapshot=0 ORDER BY k.ordered_at`);
+    WHERE k.status='ORDERED' AND k.prepayment_id IS NULL AND e.benefit_rate_snapshot=0 AND NOT e.emergency ORDER BY k.ordered_at`);
   const by = new Map();
   const group = ({ encounter_id, enc_code, patient_code, full_name }) => by.get(encounter_id)
     ?? by.set(encounter_id, { encounter_id, enc_code, patient_code, full_name, total: 0, exam: null, orders: [], consults: [] }).get(encounter_id);
@@ -269,7 +283,8 @@ route('POST', '/encounters/:id/prepayments', [C], async c => {
 // ---------- ca thu ngân (BR-SHIFT-*) ----------
 const shiftMoves = (c, id) => c.db.all(`SELECT method, amount FROM payment WHERE shift_id=$1
   UNION ALL SELECT method, amount FROM prepayment WHERE shift_id=$1
-  UNION ALL SELECT method, -amount FROM refund WHERE shift_id=$1`, id);
+  UNION ALL SELECT method, -amount FROM refund WHERE shift_id=$1
+  UNION ALL SELECT method, amount FROM admission_deposit WHERE shift_id=$1`, id); // tạm ứng nội trú (âm = hoàn tạm ứng thừa)
 const withTotals = async (c, s) => (s.closed_at ? s : { ...s, totals: shiftTotals(s.opening_float, await shiftMoves(c, s.id)) });
 
 route('GET', '/shifts/current', [C], async c => {

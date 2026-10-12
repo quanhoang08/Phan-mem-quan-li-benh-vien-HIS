@@ -29,6 +29,14 @@ import './modules/schedule.js';
 import './modules/appointments.js';
 import './modules/portal.js';
 import './modules/history.js';
+import './modules/notify.js';
+import './modules/claims.js';
+import './modules/inpatient.js';
+import './modules/purchasing.js';
+import './modules/emergency.js';
+import './modules/procedures.js';
+import './modules/conference.js';
+import { addClient, addDisplay, sseSend, displayState } from './modules/realtime.js';
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -89,6 +97,14 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   if (!url.pathname.startsWith('/api/')) return serveStatic(url.pathname, res);
 
+  if (req.method === 'GET' && url.pathname === '/api/v1/display/stream') { // màn hình gọi số ở phòng chờ: công khai, chỉ đọc, giới hạn số kết nối
+    const res0 = res, off = addDisplay(res0);
+    if (!off) return problem(res, new AppError(503, 'BUSY', 'Quá nhiều màn hình đang kết nối'));
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', ...SEC });
+    req.on('close', off);
+    return sseSend(res, 'state', await displayState(wrap(pool)));
+  }
+
   const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map(s => s.trim().split('=')).filter(a => a[0]));
   const uid = sessionUserId(cookies.sid);
   const user = uid && (await pool.query('SELECT id,username,full_name,role FROM app_user WHERE id=$1 AND active', [uid])).rows[0];
@@ -96,26 +112,28 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/v1/events/stream') {
     if (!user) return problem(res, new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập'));
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-    clients.add(res); req.on('close', () => clients.delete(res));
+    clients.add(res); const off = addClient(res, user);
+    req.on('close', () => { clients.delete(res); off(); });
     return res.write(`event: counts\ndata: ${JSON.stringify(await getCounts(wrap(pool)))}\n\n`);
   }
 
   let body = '';
-  for await (const ch of req) { body += ch; if (body.length > 1e6) throw new AppError(413, 'TOO_LARGE', 'Dữ liệu quá lớn'); }
+  const limit = /\/attachments$/.test(url.pathname) ? 8e6 : 1e6; // tệp đính kèm ≤ 5 MB (base64 ≈ 6,7 MB)
+  for await (const ch of req) { body += ch; if (body.length > limit) throw new AppError(413, 'TOO_LARGE', 'Dữ liệu quá lớn'); }
   const rt = routes.find(r => r.method === req.method && r.re.test(url.pathname));
   if (!rt) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy');
   if (rt.roles !== 'public') { // phân quyền ở server, trước mọi kiểm tra khác
     if (!user) throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập');
     if (Array.isArray(rt.roles) && !rt.roles.includes(user.role)) throw new AppError(403, 'FORBIDDEN', 'Vai trò của bạn không có quyền thực hiện thao tác này');
   }
-  if (/^\/api\/v1\/(kiosk|portal)\//.test(url.pathname)) hit(req.socket.remoteAddress);
+  if (/^\/api\/v1\/(kiosk\/|portal\/(otp|login)$)/.test(url.pathname)) hit(req.socket.remoteAddress); // các bước chưa xác thực; lệnh cổng có token thì không giới hạn
   const params = url.pathname.match(rt.re).groups || {};
   if (params.id && !UUID.test(params.id)) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy');
   let b = {};
   if (body) try { b = JSON.parse(body); } catch { throw new AppError(400, 'BAD_JSON', 'JSON không hợp lệ'); }
 
   const write = req.method !== 'GET';
-  const c = { user, sid: cookies.sid, p: params, q: Object.fromEntries(url.searchParams), b, h: req.headers, status: 200, events: [], pending: [], audits: 0 };
+  const c = { ip: req.socket.remoteAddress, user, sid: cookies.sid, p: params, q: Object.fromEntries(url.searchParams), b, h: req.headers, status: 200, events: [], pending: [], audits: 0 };
   c.audit = (action, type, id, o = {}) => { // ghi nhật ký trong CÙNG giao dịch với thay đổi dữ liệu (BR-AUD-1)
     c.audits++;
     const p = c.db.run('INSERT INTO audit_log(actor_id,actor_role,action,entity_type,entity_id,patient_id,encounter_id,request_id,ip,detail) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
@@ -132,7 +150,10 @@ async function handle(req, res) {
     if (write && !rt.na && !c.noaudit && !c.audits) throw new Error('BR-AUD-1: lệnh ghi thiếu audit'); // rollback toàn bộ
     return r;
   });
-  send(res, c.status, out, c.cookie ? { 'set-cookie': c.cookie } : {});
+  if (out?.file) { // tải tệp (XML giám định...): { file: { name, type, body } }
+    res.writeHead(c.status, { 'content-type': out.file.type, 'content-disposition': `attachment; filename="${out.file.name.replace(/[^ -~]/g, '_').replace(/"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(out.file.name)}`, ...SEC });
+    res.end(out.file.body);
+  } else send(res, c.status, out, c.cookie ? { 'set-cookie': c.cookie } : {});
   for (const ev of c.events) bus.emit('event', ev); // chỉ phát sau commit
   if (write) bus.emit('change');
 }

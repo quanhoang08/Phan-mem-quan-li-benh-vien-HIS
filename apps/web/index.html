@@ -15,12 +15,13 @@
       <p>Quản lý khám chữa bệnh ngoại trú từ tiếp đón, khám, cận lâm sàng, dược đến thanh toán trên một luồng duy nhất.</p>
       <ul><li>Tiếp đón theo CCCD, kiểm tra thẻ BHYT</li><li>Bệnh án điện tử, ICD-10, cảnh báo dị ứng</li><li>Cấp phát thuốc theo tồn kho, thu tiền một lần</li><li>Nhật ký truy vết từng thao tác</li></ul>
     </div>
-    <small style="color:#cfe3e6"><a href="/portal.html" style="color:#fff">Cổng bệnh nhân: đặt lịch hẹn khám</a><br>Bản mô phỏng phục vụ học tập. Chỉ dùng dữ liệu giả.</small>
+    <small style="color:#cfe3e6"><a href="/portal.html" style="color:#fff">Cổng bệnh nhân: đặt lịch hẹn khám</a> · <a href="/display.html" style="color:#fff">Màn hình gọi số</a><br>Bản mô phỏng phục vụ học tập. Chỉ dùng dữ liệu giả.</small>
   </section>
   <section class="lform"><div>
     <h2>Đăng nhập</h2>
     <label for="lu">Tên đăng nhập</label><input id="lu" autocomplete="username">
     <label for="lp" style="margin-top:12px">Mật khẩu</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">
+    <div id="l2" hidden style="margin-top:12px"><label for="l2c">Mã xác thực 6 số (ứng dụng xác thực trên điện thoại)</label><input id="l2c" inputmode="numeric" maxlength="6" autocomplete="one-time-code" onkeydown="if(event.key==='Enter')login2()"></div>
     <button class="p" id="loginBtn" style="width:100%;margin-top:16px;padding:10px" onclick="login()">Đăng nhập</button>
     <p style="margin:22px 0 8px"><small>Tài khoản demo (mật khẩu <code>his12345</code>), bấm để điền:</small></p>
     <div class="demo" id="demo"></div>
@@ -35,6 +36,8 @@
   <div id="shell">
     <header id="top"><div id="crumb"></div><span id="clock"></span>
       <div class="me"><span class="av" id="av"></span><span id="who"></span></div>
+      <button id="bell" onclick="showNotices()" title="Thông báo" aria-label="Thông báo"></button>
+      <button onclick="nav('sec')" title="Bảo mật tài khoản"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6z"/></svg>Bảo mật</button>
       <button onclick="logout()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Đăng xuất</button></header>
     <div id="flow" aria-label="Số người chờ mỗi trạm"></div>
     <main id="main"></main>
@@ -53,6 +56,13 @@
 <script src="/js/admin.js"></script>
 <script src="/js/schedule.js"></script>
 <script src="/js/appointments.js"></script>
+<script src="/js/inpatient.js"></script>
+<script src="/js/purchasing.js"></script>
+<script src="/js/emergency.js"></script>
+<script src="/js/procedures.js"></script>
+<script src="/js/conference.js"></script>
+<script src="/js/security.js"></script>
+<script src="/js/notices.js"></script>
 <script>boot();</script>
 </body>
 </html>

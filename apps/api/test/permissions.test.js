@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { startServer, loginAs } from './helpers.js';
 import { routes } from '../src/router.js';
 
-const ROLES = { RECEPTION: 'reception', DOCTOR: 'doctor', LAB_TECH: 'lab', PHARMACIST: 'pharmacist', CASHIER: 'cashier', MANAGER: 'manager', ADMIN: 'admin' };
+const ROLES = { RECEPTION: 'reception', DOCTOR: 'doctor', LAB_TECH: 'lab', PHARMACIST: 'pharmacist', CASHIER: 'cashier', MANAGER: 'manager', ADMIN: 'admin', NURSE: 'dieuduong' };
 let srv, as = {};
 before(async () => { srv = await startServer(); for (const [r, u] of Object.entries(ROLES)) as[r] = await loginAs(srv.base, u); });
 after(() => srv.close());

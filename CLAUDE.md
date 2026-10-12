@@ -5,6 +5,7 @@
 ## Chạy
 - `npm run db:up` (Postgres 16 ở cổng 5433), `npm install`, `npm run setup` (migrate + seed), `npm start` → http://localhost:3000
 - `npm test` (đơn vị + tích hợp, CSDL `his_test`), `npm run test:e2e` (Playwright, Chrome thật)
+- Dữ liệu lớn và tải: `npm run load:setup` (CSDL riêng `his_load`, 20 nghìn bệnh nhân), `npm run load:run` (người dùng ảo, đo p95, kiểm bất biến). ICD-10 đầy đủ: `node apps/api/src/cli.js icd10 apps/api/seeds/icd10.csv`
 
 ## Cấu trúc (modular monolith, một tiến trình, một CSDL)
 - apps/api/migrations: schema Postgres, chỉ đổi qua migration mới

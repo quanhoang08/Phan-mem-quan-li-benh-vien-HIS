@@ -389,6 +389,46 @@ Chuỗi QR: `số CCCD|số CMND cũ|họ tên|ddmmyyyy|giới tính|địa ch�
 - BR-EMR-5: ghi chú diễn tiến SOAP (`POST /encounters/:id/notes`), mỗi lượt khám nhiều ghi chú, chỉ thêm, sai thì thêm ghi chú mới. Chịu cùng khóa phiên bản (`VERSION_CONFLICT`), khóa hồ sơ sau kết thúc khám (`RECORD_LOCKED`) và trạng thái cho phép ghi như các nội dung lâm sàng khác; cần ít nhất một phần S, O, A hoặc P. Ghi chú nằm trong nội dung ký số `EXAM_SUMMARY` khi kết thúc khám. Audit `ADD_NOTE`.
 - Ô chẩn đoán và ô ICD-10 của tình trạng nền tìm trên máy chủ khi gõ (`GET /catalog/icd10?q=`), phù hợp danh mục lớn.
 
+### 4.12 Tính năng bổ sung (migration 017 đến 029)
+
+Mỗi quy tắc dưới đây có test tự động (`apps/api/test/features.test.js`, `inpatient.test.js`, `conference.test.js`, `security.test.js`, `realtime.test.js`).
+
+**Thông báo bệnh nhân và cổng bệnh nhân** (`modules/notify.js`, `integrations/sms.js`)
+- BR-NOTI-1: nhắc lịch hẹn ngày mai, mỗi lịch một lần (chỉ mục duy nhất `notification_once`); chạy mỗi giờ (`startReminderJob`) hoặc lễ tân bấm "Gửi nhắc hẹn" (`POST /notifications/reminders`).
+- BR-NOTI-2: đặt/hủy hẹn và có kết quả đều tạo thông báo trong hộp thư cổng (`GET /portal/notifications`, `POST /portal/notifications/read`). SMS gửi SAU khi commit (outbox qua `c.emit('SmsQueued')`), nội dung không dấu, không có thông tin bệnh/kết quả. Cổng SMS là bản giả lập (`SmsGateway`); lỗi gửi chỉ để lại `sms_status=FAILED`, không làm hỏng thao tác gốc.
+- BR-PORTAL-1: bệnh nhân xem kết quả cận lâm sàng của CHÍNH MÌNH (`GET /portal/results`), chỉ của lượt khám bác sĩ đã kết thúc (hồ sơ đã khóa); không trả nội dung khám; mỗi lần xem có nhật ký `PORTAL_VIEW_RESULTS`.
+
+**Hàng đợi và lịch hẹn** (BR-APPT-7, BR-APPT-8)
+- Người có lịch hẹn đến đúng phòng, không trễ quá 30 phút so với giờ dự kiến: xếp sau mọi diện ưu tiên theo luật, trước người không hẹn (`encounter.appt_priority`).
+- Đăng ký trực tiếp tại quầy tính chung sức chứa buổi với lịch hẹn (`encounter.session_id`); đủ chỗ hoặc buổi nghỉ thì trả `SESSION_FULL`/`SESSION_OFF`, lễ tân vẫn nhận được kèm lý do (`capacity_override`, ghi audit). Người có hẹn không bị chặn.
+
+**Bệnh án** (BR-EMR-6): hồ sơ đã khóa vẫn thêm được ghi chú SOAP bổ sung (bắt buộc lý do), kèm một bản điều chỉnh `NOTE`. Phiếu chỉ định, kết quả, đơn thuốc, giấy chuyển tuyến in kèm dòng tiền sử/bệnh nền còn áp dụng. Phiếu số thứ tự in khổ nhiệt 80 mm (`@page thermal`).
+
+**ICD-10 đầy đủ**: `apps/api/seeds/icd10.csv` (15.010 mã, Thông tư 06/2026/TT-BYT) tải bằng `node apps/api/seeds/icd10-fetch.mjs` từ trang tra cứu chính thức icd.kcb.vn; nạp bằng `node apps/api/src/cli.js icd10 <file.csv>` hoặc tự động khi `seed`. Gợi ý ban đầu là các mã thường dùng (`icd10.common`), gõ thì tìm trên máy chủ.
+
+**Giám định BHYT** (BR-CLAIM-1, `modules/claims.js`, `domain/claims-xml.js`): quản lý xem trước hồ sơ BHYT đã thanh toán theo khoảng ngày, kiểm lỗi (thiếu thẻ/chẩn đoán chính/tổng không khớp), xuất XML `GIAMDINHHS` gồm XML1 (tổng hợp), XML2 (thuốc), XML3 (dịch vụ kỹ thuật) mã hóa base64. Mỗi đợt xuất ghi vào `claim_export` (số hồ sơ, tổng tiền, SHA-256). Bản giản lược theo cấu trúc QĐ 4210; phải đối chiếu QĐ 130/QĐ-BYT và bảng mã hiện hành trước khi gửi cổng giám định thật.
+
+**Nội trú** (BR-IP-*, `modules/inpatient.js`): bác sĩ cho nhập viện từ lượt khám đã kết thúc (1 đợt đang điều trị mỗi người); giường có giá ngày giường chụp lúc vào, chuyển giường đóng lượt cũ; y lệnh theo ngày (thuốc liều theo buổi, số lượng do server tính, chặn dị ứng/tương tác nặng như ngoại trú, chép y lệnh ngày trước); dược cấp phát nguyên tử theo ngày (FEFO, dùng chung `takeStock` với ngoại trú); điều dưỡng thực hiện y lệnh và ghi phiếu chăm sóc (chỉ thêm); tạm ứng tính vào ca thu ngân; ra viện cần chẩn đoán và kết quả, lập hóa đơn (ngày giường tối thiểu 1 ngày mỗi lượt nằm + thuốc + thủ thuật), thanh toán trừ tạm ứng và hoàn phần thừa. Vai trò mới `NURSE`.
+
+**Kho và mua hàng** (BR-INV-*, `modules/purchasing.js`): nhà cung cấp, đơn mua (dược sĩ lập, quản lý duyệt), nhận hàng nhiều đợt theo lô (không vượt số đặt), gợi ý đặt hàng cho thuốc dưới mức đặt lại (trừ phần đang đặt), kiểm kê từng lô (lệch cần lý do, số hệ thống đổi trong lúc đếm thì `STOCK_CHANGED`, ghi sổ kho `STOCKTAKE`).
+
+**Cấp cứu** (BR-ER-*, `modules/emergency.js`): phân loại 5 mức, phòng CC chỉ nhận qua màn Cấp cứu; khám và làm cận lâm sàng trước, thanh toán sau (`encounter.emergency` miễn thu trước); xếp đầu hàng đợi theo mức rồi giờ đến; hồ sơ tạm cho người chưa rõ danh tính (`patient.provisional`), bổ sung giấy tờ bằng `POST /patients/:id/identify`; đổi mức phải có lý do và để lại `triage_history`. Thời gian chờ tối đa theo mức (0/10/30/60/120 phút) là số minh họa.
+
+**Phẫu thuật và thủ thuật** (BR-PROC-*, `modules/procedures.js`): lịch mổ không trùng phòng mổ hoặc phẫu thuật viên; phẫu thuật cần phòng mổ, phương pháp vô cảm và checklist 4 mục (đồng ý, nhịn ăn, kiểm tra dị ứng, đánh dấu vị trí) mới bắt đầu được; chỉ phẫu thuật viên được chỉ định bắt đầu/hoàn tất; hoàn tất cần chẩn đoán sau mổ và biên bản; ca chưa xong chặn kết thúc khám (ngoại trú) và ra viện (nội trú); ca hoàn tất vào hóa đơn theo giá chụp.
+
+**Hội chẩn và hồ sơ đính kèm** (BR-CONF-*, BR-ATT-*, `modules/conference.js`): bác sĩ chủ trì mời bác sĩ khác, mỗi người ghi ý kiến một lần, chủ trì kết luận khi đủ ý kiến; chỉ người tham gia xem (quản lý chỉ thấy tiến độ). Tệp đính kèm PDF/PNG/JPEG ≤ 5 MB, kiểm loại theo nội dung (magic bytes), lưu SHA-256, chỉ thêm, gắn được vào giấy chuyển tuyến và in kèm danh sách; tải về có nhật ký.
+
+**Bảo mật tài khoản** (BR-SEC-*, `modules/auth.js`, `domain/totp.js`): sai 5 lần liên tiếp (mật khẩu hoặc mã 2 lớp) thì khóa 15 phút, bộ đếm trong CSDL (`app_user.failed_logins`), quản trị mở khóa; tên không tồn tại không bao giờ "khóa" nên không lộ tài khoản. Xác thực 2 lớp TOTP (RFC 6238, kiểm bằng vector chuẩn): đăng nhập 2 bước, mỗi mã dùng một lần, tắt cần mật khẩu và mã, quản trị đặt lại khi mất điện thoại. Mọi lần xem hồ sơ đều để lại nhật ký (BR-AUD-2), báo cáo "ai đã xem hồ sơ" theo mã bệnh nhân (`GET /audit/access`, BR-AUD-3). Bí mật TOTP đang lưu rõ trong CSDL (ghi chú `ponytail` trong mã): bản thật cần mã hóa bằng khóa ngoài.
+
+**Thông báo thời gian thực** (BR-RT-*, `modules/realtime.js`): SSE `notice` theo vai trò/người nhận (cấp cứu, chỉ định mới, có kết quả, cấp thuốc, thuốc sắp hết, hội chẩn...), chỉ chứa mã lượt khám và tên viết tắt; chuông thông báo trong ứng dụng. Màn hình gọi số công khai `/display.html` (không đăng nhập, `GET /display/state` + SSE `/display/stream`, giới hạn 100 kết nối), đọc số bằng chuông và giọng tiếng Việt khi bật âm thanh.
+
+**Bảng điều khiển quản lý** (`GET /reports/dashboard`): thời gian chờ theo phòng (trung bình, P90), công suất hôm nay (hẹn + đến thẳng / sức chứa), doanh thu theo khoa và nội trú, xu hướng theo ngày, dịch vụ doanh thu cao, cấp cứu (thời gian từ lúc đến tới lúc bác sĩ khám), giường.
+
+**Dữ liệu lớn và kiểm thử tải** (CSDL riêng `his_load`): `npm run load:setup` sinh 20.000 bệnh nhân và ~15.000 lượt khám lịch sử trong vài giây (`seeds/bulk.js`, ghi thẳng SQL nên không có audit lịch sử); `npm run load:run` chạy người dùng ảo song song qua API (đăng ký → khám → xét nghiệm → kê đơn → cấp phát → thu tiền, xen lẫn các màn hình đọc nặng), đo p50/p95/p99, đếm lỗi, kiểm các bất biến dữ liệu sau tải. Kết quả đo (24 người dùng, 20 giây): 22 lượt khám hoàn tất/giây, 329 yêu cầu/giây, p95 mọi yêu cầu dưới 150 ms, 0 lỗi. Lần đo đầu phát hiện bảng điều khiển mất 62 giây do thiếu chỉ mục khóa ngoại `payment(invoice_id)`; migration 028 thêm chỉ mục trigram cho tìm bệnh nhân và các chỉ mục khóa ngoại cần thiết, bảng điều khiển còn 121 ms.
+
+**Còn lại sau đợt này** (cần quyết định/nguồn ngoài, chưa làm): nối nhà mạng SMS và cổng giám định BHXH thật, ký số thật, mã hóa bí mật TOTP bằng KMS, đối chiếu mẫu giấy tờ và bảng mã với văn bản hiện hành, in thử trên máy in thật (đã kiểm bản xem trước PDF theo CSS in), khoảng tham chiếu xét nghiệm từ phòng xét nghiệm thật, nội trú nâng cao (y lệnh lặp theo chu kỳ, nửa ngày giường theo TT 39/2018).
+
+
 ---
 
 ## 5. Mô hình dữ liệu
@@ -1006,14 +1046,13 @@ Mỗi milestone kết thúc bằng một thứ chạy được và test xanh. Đ
 
 ## 15. Mở rộng sau MVP
 
-- Nội trú: giường, phiếu điều trị theo ngày, y lệnh lặp, chăm sóc điều dưỡng, tạm ứng và thanh toán ra viện.
-- Dược nâng cao: đơn thuốc điện tử liên thông, màn quản trị danh mục tương tác. (Lô và hạn dùng, tương tác thuốc đã có: mục 5.5, `BR-RX-4` đến `BR-RX-6`.)
-- Cận lâm sàng thật: nhận kết quả từ máy qua HL7/ASTM, PACS và xem ảnh. (Chỉ số định lượng có khoảng tham chiếu theo giới/tuổi đã có: `BR-LAB-*`; khoảng tham chiếu trong seed chỉ để minh họa, cần lấy từ phòng xét nghiệm thật.)
-- Gọi số nâng cao: loa phát thanh thật, nhiều màn hình theo khu. (Ưu tiên, đánh vắng, chốt ngày đã có: `BR-Q-*`.)
-- Thu ngân nâng cao: (in biên bản chốt ca đã có; Thu phí khám và khám thêm trước, duyệt hoàn tiền có ngưỡng, hoàn từng chỉ định CLS và lượt khám thêm, trả thuốc nhập kho đã có: `BR-BILL-5`…`BR-BILL-8`, `BR-RX-8`.)
-- Cổng bệnh nhân: xem kết quả xét nghiệm, nhắc lịch hẹn (đặt/hủy hẹn đã có: mục 4.10).
-- Tuân thủ: ký số thật, danh mục theo văn bản mới nhất, định dạng dữ liệu giám định thanh toán.
-- Vận hành: sao lưu, máy chủ dự phòng, giám sát.
+Đã làm trong đợt bổ sung (xem 4.12): nội trú, kho và mua hàng, cấp cứu, phẫu thuật và thủ thuật, hội chẩn và hồ sơ đính kèm, giám định BHYT (XML), nhắc hẹn và kết quả trên cổng bệnh nhân, bảo mật tài khoản (khóa, 2 lớp), thông báo thời gian thực và màn hình gọi số công khai, bảng điều khiển, dữ liệu lớn và kiểm thử tải, ICD-10 đầy đủ.
+
+Còn để ngỏ:
+- Tích hợp thật: SMS brandname, cổng giám định BHXH (định dạng QĐ 130/QĐ-BYT), ký số thật, HL7/ASTM với máy xét nghiệm, PACS, đơn thuốc điện tử liên thông.
+- Nội trú nâng cao: y lệnh lặp theo chu kỳ, nửa ngày giường, chuyển khoa trong ngày, tạm ứng theo mức.
+- Vận hành: sao lưu, máy chủ dự phòng, giám sát; phiên đăng nhập và token cổng bệnh nhân hiện lưu trong bộ nhớ một tiến trình (chuyển sang kho dùng chung khi chạy nhiều tiến trình).
+- Tuân thủ: mã hóa bí mật 2 lớp bằng khóa ngoài, danh mục theo văn bản mới nhất.
 
 ---
 

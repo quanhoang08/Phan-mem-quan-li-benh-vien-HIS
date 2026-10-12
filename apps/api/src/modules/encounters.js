@@ -5,10 +5,12 @@ import { ageOf, todayISO } from '../domain/identity.js';
 import { patientView } from './patients.js';
 import { healthRecordExporter } from '../integrations/fhir.js';
 import { ROUTES, routeRate, exemptRate } from '../domain/pricing.js';
-import { priorityOf, compareQueue, MIN_CALLS_BEFORE_SKIP } from '../domain/queue-order.js';
+import { priorityOf, compareQueue, MIN_CALLS_BEFORE_SKIP, APPT_GRACE_MIN } from '../domain/queue-order.js';
+import { shiftAt, slotMinutes, isoWeekday } from '../domain/schedule.js';
 import { config } from '../config.js';
 import { needsPrepay } from './billing.js';
 import { conditionsOf, notesOf } from './history.js';
+import { attachmentsOf } from './conference.js';
 
 const pad = (n, w) => String(n).padStart(w, '0');
 const EVENT = { start: 'ExamStarted', order_services: 'ServicesOrdered', results_ready: 'ResultsReady', finish: 'ExamFinished', dispense: 'PrescriptionDispensed', pay: 'PaymentCompleted' };
@@ -45,7 +47,8 @@ export async function transition(c, enc, cmd, to, { note, set = {} } = {}) {
 }
 // Còn chỉ định cận lâm sàng hoặc khám chuyên khoa chưa có kết quả (BR-CLIN-2, BR-CONS-3)
 export const hasPending = async (c, encId) => !!(await c.db.one(`SELECT 1 x FROM service_order WHERE encounter_id=$1 AND status='ORDERED'
-  UNION ALL SELECT 1 FROM encounter_consult WHERE encounter_id=$1 AND status='ORDERED' LIMIT 1`, encId));
+  UNION ALL SELECT 1 FROM encounter_consult WHERE encounter_id=$1 AND status='ORDERED'
+  UNION ALL SELECT 1 FROM procedure_case WHERE encounter_id=$1 AND admission_id IS NULL AND status IN ('SCHEDULED','IN_PROGRESS') LIMIT 1`, encId));
 // Hết chỉ định đang chờ thì tự chuyển RESULTS_READY (hệ thống thực hiện)
 export async function settleResults(c, enc) {
   if (enc.status !== 'WAITING_SERVICES') return;
@@ -78,7 +81,7 @@ export async function replaceDiagnoses(c, encId, items) {
 
 // ---------- đọc ----------
 const ENC_LIST = `SELECT e.id, e.patient_id, e.code, e.status, e.queue_no, e.queue_date, e.registered_at, e.benefit_rate_snapshot, e.route, e.version, e.copay_exemption_id IS NOT NULL copay_exempt,
-  e.benefit_rate_snapshot=0 AND e.exam_prepayment_id IS NULL exam_unpaid, e.called_at, e.call_count, e.priority, e.skipped_at, e.follow_up_date, e.follow_up_note,
+  (e.benefit_rate_snapshot=0 AND NOT e.emergency AND e.exam_prepayment_id IS NULL) exam_unpaid, e.emergency, e.triage_level, e.arrival_mode, e.called_at, e.call_count, e.priority, e.appt_priority, e.skipped_at, e.follow_up_date, e.follow_up_note,
   r.code room_code, r.name room_name, p.code patient_code, p.full_name, p.sex, p.dob
   FROM encounter e JOIN patient p ON p.id=e.patient_id JOIN room r ON r.id=e.room_id`;
 const withLabel = r => ({ ...r, label: `${r.room_code}-${pad(r.queue_no, 3)}` });
@@ -110,12 +113,14 @@ route('GET', '/encounters/:id', 'any', async c => {
     out.previous = await c.db.all(`SELECT e2.code, e2.registered_at, (SELECT i.code||' '||i.name_vi FROM encounter_diagnosis d JOIN icd10 i ON i.code=d.icd10_code WHERE d.encounter_id=e2.id AND d.is_primary) dx
       FROM encounter e2 WHERE e2.patient_id=$1 AND e2.id<>$2 ORDER BY e2.registered_at DESC LIMIT 10`, p.id, e.id);
     out.signatures = await c.db.all('SELECT s.doc_type, s.doc_hash, s.method, s.signed_at, u.full_name signer FROM record_signature s JOIN app_user u ON u.id=s.signer_id WHERE s.encounter_id=$1 ORDER BY s.signed_at', e.id);
-    out.documents = await c.db.all('SELECT d.kind, d.serial_no, d.data, d.issued_at, u.full_name issued_by FROM encounter_document d JOIN app_user u ON u.id=d.issued_by WHERE d.encounter_id=$1 ORDER BY d.issued_at', e.id);
+    out.documents = await c.db.all('SELECT d.id, d.kind, d.serial_no, d.data, d.issued_at, u.full_name issued_by FROM encounter_document d JOIN app_user u ON u.id=d.issued_by WHERE d.encounter_id=$1 ORDER BY d.issued_at', e.id);
     out.amendments = await c.db.all('SELECT a.entity_type, a.reason, a.before, a.after, a.at, u.full_name actor FROM record_amendment a JOIN app_user u ON u.id=a.actor_id WHERE a.encounter_id=$1 ORDER BY a.at', e.id);
     out.conditions = await conditionsOf(c.db, p.id); // BR-EMR-4: tiền sử, bệnh mạn tính
     out.notes = await notesOf(c.db, e.id); // BR-EMR-5: ghi chú diễn tiến SOAP
+    out.attachments = await attachmentsOf(c.db, e.id); // BR-ATT-1: tệp đính kèm (hồ sơ chuyển tuyến...)
     await c.audit('VIEW_CHART', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id }); // BR-AUD-2
   }
+  if (role !== D) await c.audit('VIEW_ENCOUNTER', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id }); // BR-AUD-2: mọi lần xem hồ sơ đều có dấu vết
   if (role === D || role === 'LAB_TECH')
     out.orders = await c.db.all(`SELECT o.id, o.status, o.price_snapshot, s.code, s.name, s.grp, r.result_text, r.is_abnormal, r.result_json
       FROM service_order o JOIN service_catalog s ON s.id=o.service_id LEFT JOIN service_result r ON r.order_id=o.id WHERE o.encounter_id=$1 ORDER BY o.ordered_at, s.code`, e.id);
@@ -126,7 +131,7 @@ route('GET', '/encounters/:id', 'any', async c => {
     out.prescription = rx ? { ...rx, lines: await c.db.all('SELECT l.*, d.name, d.unit FROM prescription_line l JOIN drug d ON d.id=l.drug_id WHERE l.prescription_id=$1 ORDER BY d.name', rx.id) } : null;
   }
   if (role === 'CASHIER' || role === 'MANAGER') {
-    const inv = await c.db.one("SELECT * FROM invoice WHERE encounter_id=$1 ORDER BY status='VOID', created_at DESC LIMIT 1", e.id); // hóa đơn còn hiệu lực trước
+    const inv = await c.db.one("SELECT * FROM invoice WHERE encounter_id=$1 AND admission_id IS NULL ORDER BY status='VOID', created_at DESC LIMIT 1", e.id); // hóa đơn còn hiệu lực trước
 
     out.invoice = inv ? { ...inv, lines: await c.db.all('SELECT * FROM invoice_line WHERE invoice_id=$1', inv.id), payments: await c.db.all('SELECT * FROM payment WHERE invoice_id=$1', inv.id) } : null;
   }
@@ -134,12 +139,16 @@ route('GET', '/encounters/:id', 'any', async c => {
 });
 
 // ---------- tiếp đón: đăng ký ----------
-route('POST', '/encounters', [R], async c => {
-  const b = c.b, d = todayISO();
+route('POST', '/encounters', [R], c => registerEncounter(c, c.b));
+
+// Đăng ký lượt khám (dùng chung cho tiếp đón và cấp cứu). extra: { emergency, triage_level, arrival_mode } do cấp cứu truyền vào.
+export async function registerEncounter(c, b, extra = {}) {
+  const d = todayISO();
   const p = await c.db.one('SELECT * FROM patient WHERE id=$1 FOR UPDATE', b.patient_id); // khóa bệnh nhân: hai lễ tân cùng đăng ký không lọt BR-ENC-1
   if (!p) throw notFound('bệnh nhân');
   const room = await c.db.one('SELECT * FROM room WHERE id=$1', b.room_id);
   if (!room) throw notFound('phòng');
+  if (room.code === 'CC' && !extra.emergency) throw validation('Phòng Cấp cứu chỉ tiếp nhận qua màn Cấp cứu (có phân loại ưu tiên)');
   if (b.ticket_id) { // phiếu kiosk phải đúng người: so số CCCD của phiếu với hồ sơ đang đăng ký
     const t = await c.db.one('SELECT id_number, status FROM ticket WHERE id=$1 FOR UPDATE', b.ticket_id);
     if (!t) throw notFound('phiếu');
@@ -148,7 +157,7 @@ route('POST', '/encounters', [R], async c => {
   }
   let appt = null; // BR-APPT-5: tiếp nhận người có lịch hẹn đúng ngày thì chuyển lịch sang ARRIVED
   if (b.appointment_id) {
-    appt = await c.db.one('SELECT id, patient_id, day, status FROM appointment WHERE id=$1 FOR UPDATE', b.appointment_id);
+    appt = await c.db.one('SELECT id, patient_id, day, status, session_id, slot_no FROM appointment WHERE id=$1 FOR UPDATE', b.appointment_id);
     if (!appt) throw notFound('lịch hẹn');
     if (appt.status !== 'BOOKED') throw new AppError(409, 'APPT_USED', 'Lịch hẹn không còn ở trạng thái chờ khám');
     if (appt.patient_id !== p.id) throw new AppError(409, 'APPT_MISMATCH', 'Lịch hẹn không thuộc về bệnh nhân này');
@@ -158,6 +167,25 @@ route('POST', '/encounters', [R], async c => {
   const dup = await c.db.one("SELECT code FROM encounter WHERE patient_id=$1 AND room_id=$2 AND queue_date=$3 AND status NOT IN ('COMPLETED','CANCELLED') LIMIT 1", p.id, room.id, d);
   if (dup && !(b.confirm_duplicate && b.reason)) // BR-ENC-1
     throw new AppError(409, 'ENCOUNTER_DUPLICATE', `Bệnh nhân đã có lượt khám đang mở ở phòng này (${dup.code}). Cần xác nhận kèm lý do`, { existing: dup.code });
+
+  // Buổi làm việc của lượt khám: theo lịch hẹn, hoặc buổi của phòng ở thời điểm đăng ký. Khóa dòng buổi để các lễ tân cùng nhận không vượt sức chứa.
+  const now = new Date(), mins = now.getHours() * 60 + now.getMinutes();
+  const sess = appt ? await c.db.one('SELECT * FROM schedule_session WHERE id=$1 FOR UPDATE', appt.session_id)
+    : await c.db.one('SELECT * FROM schedule_session WHERE room_id=$1 AND weekday=$2 AND shift=$3 AND active FOR UPDATE', room.id, isoWeekday(d), shiftAt(mins));
+  // BR-APPT-7: đến đúng phòng hẹn, không trễ quá 30 phút so với giờ dự kiến thì được ưu tiên lịch hẹn
+  const apptPriority = !!appt && sess.room_id === room.id && mins <= slotMinutes(sess.shift, appt.slot_no, sess.capacity) + APPT_GRACE_MIN;
+  // BR-APPT-8: người đến thẳng quầy tính chung sức chứa với lịch hẹn (đã đặt + đã đến); đủ chỗ hoặc buổi nghỉ thì cần lý do mới nhận
+  let override = null;
+  if (!appt && sess) {
+    const off = await c.db.one('SELECT reason FROM schedule_off WHERE session_id=$1 AND day=$2', sess.id, d);
+    const { n } = await c.db.one(`SELECT (SELECT count(*) FROM appointment WHERE session_id=$1 AND day=$2 AND status IN ('BOOKED','ARRIVED'))
+      + (SELECT count(*) FROM encounter e WHERE e.session_id=$1 AND e.queue_date=$2 AND e.status<>'CANCELLED' AND NOT EXISTS (SELECT 1 FROM appointment a WHERE a.encounter_id=e.id)) AS n`, sess.id, d);
+    const why = off ? `Buổi khám ${room.name} hôm nay nghỉ (${off.reason})` : n >= sess.capacity ? `Buổi khám ${room.name} đã đủ ${sess.capacity} chỗ (tính cả lịch hẹn)` : null;
+    if (why) {
+      override = String(b.capacity_override ?? '').trim();
+      if (!override) throw new AppError(409, off ? 'SESSION_OFF' : 'SESSION_FULL', `${why}. Chuyển phòng khác, hẹn ngày khác, hoặc ghi lý do để vẫn tiếp nhận`, { capacity: sess.capacity, used: n });
+    }
+  }
 
   // BR-INS-2: thẻ hết hạn/chưa hiệu lực thì mức hưởng 0 kèm cảnh báo; mức hưởng được CHỤP vào lượt khám
   let card = await c.db.one('SELECT * FROM insurance_card WHERE patient_id=$1 AND valid_from<=$2 AND valid_to>=$2 ORDER BY benefit_rate DESC LIMIT 1', p.id, d), warning = null;
@@ -185,17 +213,17 @@ route('POST', '/encounters', [R], async c => {
   const { last_no: seq } = await c.db.one('INSERT INTO encounter_day_counter(day,last_no) VALUES ($1,1) ON CONFLICT (day) DO UPDATE SET last_no=encounter_day_counter.last_no+1 RETURNING last_no', d);
   const code = `LK${d.replaceAll('-', '')}-${pad(seq, 3)}`;
   const e = await c.db.one(`INSERT INTO encounter(code,patient_id,room_id,queue_date,queue_no,insurance_card_id,benefit_rate_snapshot,route,referral_no,chief_complaint,registered_by,priority,
-      copay_exemption_id,exam_price_snapshot,exam_covered_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+      copay_exemption_id,exam_price_snapshot,exam_covered_snapshot,session_id,appt_priority,capacity_override,emergency,triage_level,triage_at,arrival_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING id`,
     code, p.id, room.id, d, no, card?.id ?? null, rate, routeType, routeType === 'REFERRAL' ? String(b.referral_no).trim() : null, b.chief_complaint || null, c.user.id, priority,
-    ex?.id ?? null, exam.price, exam.insurance_covered);
+    ex?.id ?? null, exam.price, exam.insurance_covered, sess?.id ?? null, apptPriority, override, !!extra.emergency, extra.triage_level ?? null, extra.triage_level ? new Date() : null, extra.arrival_mode ?? null);
   await c.db.run('INSERT INTO encounter_status_history(encounter_id,from_status,to_status,actor_id) VALUES ($1,NULL,$2,$3)', e.id, 'REGISTERED', c.user.id);
   if (b.ticket_id) await c.db.run("UPDATE ticket SET status='RECEIVED', encounter_id=$1 WHERE id=$2 AND status='ISSUED'", e.id, b.ticket_id); // phiếu lấy số ở kiosk đã được tiếp nhận
   if (appt) await c.db.run("UPDATE appointment SET status='ARRIVED', encounter_id=$1 WHERE id=$2", e.id, appt.id);
-  await c.audit('REGISTER', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id, detail: { appointment_id: appt?.id, duplicate_override: dup ? b.reason : undefined, route: routeType ?? undefined, priority: priority ?? undefined, copay_exempt: ex ? true : undefined } });
+  await c.audit('REGISTER', 'encounter', e.id, { patient_id: p.id, encounter_id: e.id, detail: { appointment_id: appt?.id, appt_priority: apptPriority || undefined, capacity_override: override ?? undefined, duplicate_override: dup ? b.reason : undefined, route: routeType ?? undefined, priority: priority ?? undefined, copay_exempt: ex ? true : undefined } });
   c.emit('EncounterRegistered', { encounter_id: e.id });
   c.status = 201;
-  return { id: e.id, code, label: `${room.code}-${pad(no, 3)}`, benefit_rate: rate, route: routeType, priority, warning, copay_exempt: !!ex, exam_prepay: rate === 0 ? exam.price : null };
-});
+  return { id: e.id, code, label: `${room.code}-${pad(no, 3)}`, benefit_rate: rate, route: routeType, priority, appt_priority: apptPriority, warning, copay_exempt: !!ex, exam_prepay: rate === 0 && !extra.emergency ? exam.price : null };
+}
 
 // Gọi số: mời bệnh nhân vào phòng (lần đầu hoặc quay lại khi đã có kết quả CLS). Không đổi trạng thái, không tăng version
 // để bác sĩ đang mở bệnh án không bị VERSION_CONFLICT chỉ vì lễ tân bấm gọi.
@@ -235,7 +263,9 @@ route('POST', '/encounters/:id/transfer', [R, D], async c => {
   if (dup) throw new AppError(409, 'ENCOUNTER_DUPLICATE', `Bệnh nhân đã có lượt khám đang mở ở ${room.name} (${dup.code})`, { existing: dup.code });
   const old = await c.db.one('SELECT code FROM room WHERE id=$1', e.room_id);
   const { last_no: no } = await c.db.one('INSERT INTO room_queue_counter(room_id,queue_date,last_no) VALUES ($1,$2,1) ON CONFLICT (room_id,queue_date) DO UPDATE SET last_no=room_queue_counter.last_no+1 RETURNING last_no', room.id, e.queue_date);
-  await c.db.run('UPDATE encounter SET room_id=$1, queue_no=$2, called_at=NULL, call_count=0, skipped_at=NULL, version=version+1 WHERE id=$3', room.id, no, e.id);
+  const now = new Date(); // buổi làm việc theo phòng đích để sức chứa đếm đúng phòng
+  const sess = await c.db.one('SELECT id FROM schedule_session WHERE room_id=$1 AND weekday=$2 AND shift=$3 AND active', room.id, isoWeekday(e.queue_date), shiftAt(now.getHours() * 60 + now.getMinutes()));
+  await c.db.run('UPDATE encounter SET room_id=$1, queue_no=$2, called_at=NULL, call_count=0, skipped_at=NULL, session_id=$4, appt_priority=false, version=version+1 WHERE id=$3', room.id, no, e.id, sess?.id ?? null);
   e.version++;
   const label = `${room.code}-${pad(no, 3)}`, from = `${old.code}-${pad(e.queue_no, 3)}`;
   await c.audit('TRANSFER_ROOM', 'encounter', e.id, { patient_id: e.patient_id, encounter_id: e.id, detail: { from, to: label, reason } });

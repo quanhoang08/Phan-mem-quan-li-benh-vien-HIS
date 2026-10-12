@@ -47,7 +47,7 @@ V.exam = act(async (id, keep) => {
    ${conditionsCard()}
    <div class="card"><h3>Sinh hiệu</h3><div class="vit">${VF.map(([k, n]) => `<div><label for="v_${k}">${n}</label><input id="v_${k}" type="number" step="any" value="${esc(X.vitals?.[k] ?? '')}" ${dis} oninput="vitalWarn()"></div>`).join('')}</div><div id="vw" style="margin-top:8px"></div></div>
    <div class="card"><h3>Khám lâm sàng</h3><textarea id="exam" aria-label="Khám lâm sàng" ${dis}>${esc(X.exam_text || '')}</textarea><small>Lý do khám: ${esc(e.chief_complaint || '—')}</small></div>
-   ${notesCard(ed)}
+   ${notesCard(ed, amend)}
    <div class="card"><h3>Chẩn đoán (ICD-10)</h3>${ed || amend ? `<div class="row"><div><input id="dxq" list="icdl" aria-label="Tìm mã ICD-10" placeholder="Gõ mã hoặc tên bệnh rồi chọn…" oninput="icdSearch(this)" onchange="addDx()"><datalist id="icdl">${CAT.icd.map(i => `<option value="${esc(i.code)} · ${esc(i.name_vi)}">`).join('')}</datalist></div></div>` : ''}<div id="dxlist"></div></div>
    <div class="card"><h3>Chỉ định cận lâm sàng</h3>${canOrder ? `${Object.entries(GRP).map(([g, gn]) => { const ss = CAT.services.filter(s => s.grp === g && !X.orders.some(o => o.code === s.code)); return ss.length ? `<div class="svcgrp"><small>${gn}</small><div class="sec">${ss.map(s => `<label><input type="checkbox" class="svc" value="${s.id}" data-code="${esc(s.code)}">${esc(s.name)} <small>${money(s.price)}${s.insurance_covered ? '' : ' · ngoài BHYT'}</small></label>`).join('')}</div></div>` : ''; }).join('')}<button class="p" onclick="orderSvc()">Gửi chỉ định</button>` : st === 'WAITING_SERVICES' && X.orders.some(o => o.status === 'ORDERED') ? '<p class="mut">Đang chờ kết quả cận lâm sàng…</p>' : ''}
     ${X.orders.length ? `<table style="margin-top:12px"><tr><th>Dịch vụ</th><th>Trạng thái</th><th>Kết quả</th><th></th></tr>${X.orders.map(o => `<tr><td>${esc(o.name)}<br><small>${GRP[o.grp] || ''}</small></td>
@@ -63,6 +63,8 @@ V.exam = act(async (id, keep) => {
       <td>${k.status === 'RESULTED' ? '<span class="chip ok">Đã khám</span>' : k.status === 'CANCELLED' ? '<span class="chip bad">Đã hủy</span>' : '<span class="chip warn">Chờ khám</span>'}</td>
       <td>${esc(k.conclusion || '')}${k.done_by ? `<br><small>${esc(k.done_by)} · ${when(k.done_at)}</small>` : ''}</td><td>${k.status === 'ORDERED' ? `<button class="d sm" onclick="cancelConsult('${k.id}')">Hủy</button>` : ''}</td></tr>`).join('')}</table>`
       : canOrder ? '' : '<span class="mut">Không mời khám chuyên khoa</span>'}</div>
+   <div class="card" id="proccard"></div>
+   <div class="card" id="confcard"></div>
    <div class="card"><h3>Đơn thuốc</h3>${X.prescription?.override_reason ? `<div class="banner warn">Đã vượt cảnh báo dị ứng: ${esc(X.prescription.override_reason)}</div>` : ''}${X.prescription?.interaction_reason ? `<div class="banner warn">Đã vượt cảnh báo tương tác thuốc: ${esc(X.prescription.interaction_reason)}</div>` : ''}<div id="rxlist"></div>
     <div style="margin-top:10px">${ed ? `<button onclick="addRxLine()">+ Thêm thuốc</button> <button onclick="saveRx()">Lưu đơn thuốc</button> ` : ''}${X.prescription?.lines.length ? `<button onclick="printRx()">${icon('print')} In đơn thuốc</button>` : ''}</div></div>
    <div class="card"><h3>Hẹn tái khám</h3>${ed ? `<div class="row"><div><label for="fuDate">Ngày hẹn</label><input id="fuDate" type="date" min="${new Date(Date.now() + 864e5).toLocaleDateString('sv')}" value="${esc(e.follow_up_date || '')}"></div>
@@ -70,6 +72,8 @@ V.exam = act(async (id, keep) => {
       : e.follow_up_date ? `Tái khám ngày <b>${dmy(e.follow_up_date)}</b>${e.follow_up_note ? ' · ' + esc(e.follow_up_note) : ''}` : '<span class="mut">Không hẹn tái khám</span>'}</div>
    ${ed ? `<div class="card actions"><small>${canOrder ? 'Kết thúc khám sẽ khóa hồ sơ, ký xác nhận và chuyển sang dược/thu ngân.' : 'Chờ đủ kết quả cận lâm sàng và khám chuyên khoa để kết thúc khám.'}</small><button onclick="saveAll()">Lưu khám</button> <button class="p" id="finishBtn" onclick="finish()" ${canOrder ? '' : 'disabled'}>Kết thúc khám</button></div>` : ''}
    ${amend ? docCard() : ''}
+   ${attCard()}
+   ${amend && ME.role === 'DOCTOR' ? '<div class="card"><h3>Nội trú</h3><button onclick="admitPatient()">Cho nhập viện</button> <small class="mut">Người bệnh cần theo dõi, điều trị nội trú.</small></div>' : ''}
    ${amend ? `<div class="card"><h3>Điều chỉnh hồ sơ đã khóa</h3><div class="row"><div style="flex:3"><label for="amReason">Lý do điều chỉnh *</label><input id="amReason"></div><button class="p" onclick="saveAmendments()">Lưu điều chỉnh</button></div></div>` : ''}
   </div><div>
    <div class="card"><h3>Hành chính</h3><dl class="dl"><dt>Mã lượt</dt><dd>${esc(e.code)}</dd><dt>Ngày sinh</dt><dd>${new Date(p.dob).toLocaleDateString('vi-VN')}</dd><dt>Điện thoại</dt><dd>${esc(p.phone || '—')}</dd><dt>Địa chỉ</dt><dd>${esc(p.address || '—')}</dd>
@@ -80,7 +84,7 @@ V.exam = act(async (id, keep) => {
    <div class="card"><h3>Các lần khám trước</h3>${X.previous.length ? `<div class="tl">${X.previous.map(x => `<div><small>${esc(x.code)} · ${when(x.registered_at)}</small><br>${esc(x.dx || '—')}</div>`).join('')}</div>` : '<span class="mut">Chưa có</span>'}</div>
    <div class="card"><h3>Lịch sử trạng thái</h3><div class="tl">${X.history.map(h => `<div><small>${when(h.at)}</small><br>${chip(h.to_status)} ${esc(h.actor || 'hệ thống')}${h.note ? ' · ' + esc(h.note) : ''}</div>`).join('')}</div></div>
   </div></div>`);
-  drawDx(ed || amend); drawRx(ed); vitalWarn();
+  drawDx(ed || amend); drawRx(ed); vitalWarn(); loadProcCard({ enc: id, canOrder }); loadConfCard(id);
 });
 
 function drawDx(can = true) {
@@ -203,7 +207,7 @@ function printOrders() {
   printDoc(`${docHead()}<h1>PHIẾU CHỈ ĐỊNH CẬN LÂM SÀNG</h1><p class="c">Mã lượt khám: ${esc(e.code)}</p>
     <p>Họ tên: <b>${esc(p.full_name).toUpperCase()}</b> &nbsp; Tuổi: ${p.age} &nbsp; Giới tính: ${SEX[p.sex]} &nbsp; Mã BN: ${esc(p.code)}<br>
     Nơi chỉ định: ${esc(e.room_name)} &nbsp; Chẩn đoán: ${X.diagnoses.map(d => `${esc(d.name_vi)} (${esc(d.code)})`).join('; ') || '—'}
-    ${X.allergies.length ? `<br>Dị ứng: <b>${X.allergies.map(esc).join(', ')}</b>` : ''}</p>
+    ${X.allergies.length ? `<br>Dị ứng: <b>${X.allergies.map(esc).join(', ')}</b>` : ''}${bgLine()}</p>
     <table><tr><th>STT</th><th>Dịch vụ</th><th>Nhóm</th><th>Trạng thái</th></tr>${list.map((o, i) => `<tr><td class="c">${i + 1}</td><td><b>${esc(o.name)}</b> <small>${esc(o.code)}</small></td>
       <td>${GRP[o.grp] || ''}</td><td>${o.status === 'RESULTED' ? 'Đã có kết quả' : 'Chờ thực hiện'}</td></tr>`).join('')}</table>
     <div class="sig"><div></div><div>${dateLine()}<br><b>Bác sĩ chỉ định</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${ME.role === 'DOCTOR' ? esc(ME.full_name) : ''}</div></div>`);
@@ -213,7 +217,7 @@ function printLab() {
   const e = X.encounter, p = X.patient, done = X.orders.filter(o => o.status === 'RESULTED');
   printDoc(`${docHead()}<h1>PHIẾU KẾT QUẢ CẬN LÂM SÀNG</h1><p class="c">Mã lượt khám: ${esc(e.code)}</p>
     <p>Họ tên: <b>${esc(p.full_name).toUpperCase()}</b> &nbsp; Tuổi: ${p.age} &nbsp; Giới tính: ${SEX[p.sex]} &nbsp; Mã BN: ${esc(p.code)}<br>
-    Nơi chỉ định: ${esc(e.room_name)} &nbsp; Chẩn đoán: ${X.diagnoses.map(d => `${esc(d.name_vi)} (${esc(d.code)})`).join('; ') || '—'}</p>
+    Nơi chỉ định: ${esc(e.room_name)} &nbsp; Chẩn đoán: ${X.diagnoses.map(d => `${esc(d.name_vi)} (${esc(d.code)})`).join('; ') || '—'}${bgLine()}</p>
     <table><tr><th>STT</th><th>Dịch vụ</th><th>Kết quả</th><th>Đánh giá</th></tr>${done.map((o, i) => `<tr><td class="c">${i + 1}</td><td><b>${esc(o.name)}</b><br><small>${GRP[o.grp] || ''}</small></td>
       <td>${o.result_json?.values ? `<table>${o.result_json.values.map(v => `<tr><td>${esc(v.name)}</td><td class="r"><b>${v.value} ${flagMark(v.flag)}</b></td><td>${esc(v.unit || '')}</td><td>${refRange(v)}${rangeWho(v) ? ` (${rangeWho(v)})` : ''}</td></tr>`).join('')}</table>` : esc(o.result_text || '')}${o.result_json?.image_url ? `<br><small>Ảnh: ${esc(o.result_json.image_url)}</small>` : ''}</td><td class="c">${o.is_abnormal ? '<b>Bất thường</b>' : 'Bình thường'}</td></tr>`).join('')}</table>
     <p><small>↑ cao hơn, ↓ thấp hơn khoảng tham chiếu. Khoảng tham chiếu trong bản mô phỏng chỉ để minh họa.</small></p>
@@ -226,7 +230,7 @@ function printRx() {
   printDoc(`${docHead()}<h1>ĐƠN THUỐC</h1><p class="c">Mã lượt khám: ${esc(e.code)}</p>
     <p>Họ tên: <b>${esc(p.full_name).toUpperCase()}</b> &nbsp; Tuổi: ${p.age} &nbsp; Giới tính: ${SEX[p.sex]}<br>Mã bệnh nhân: ${esc(p.code)} &nbsp; Mức hưởng BHYT: ${e.benefit_rate_snapshot}%<br>
     Địa chỉ: ${esc(p.address || '')}<br>Chẩn đoán: ${X.diagnoses.map(d => `${esc(d.name_vi)} (${esc(d.code)})`).join('; ') || '—'}
-    ${X.allergies.length ? `<br>Dị ứng: <b>${X.allergies.map(esc).join(', ')}</b>` : ''}</p>
+    ${X.allergies.length ? `<br>Dị ứng: <b>${X.allergies.map(esc).join(', ')}</b>` : ''}${bgLine()}</p>
     ${['HOSPITAL', 'EXTERNAL'].map(src => { const ls = rx.lines.filter(l => l.source === src); return ls.length ? `<p><b>${src === 'HOSPITAL' ? 'Thuốc cấp tại bệnh viện' : 'Thuốc mua ngoài (người bệnh tự mua, BHYT không chi trả)'}</b></p>
     ${ls.map((l, i) => `<div style="margin:8px 0 12px"><b>${i + 1}. ${esc(l.name)}</b><span style="float:right">SL: <b>${l.quantity}</b> ${esc(l.unit)}</span><br>
       ${slotsLine(l)}${l.instruction ? `<br><i>${esc(l.instruction)}</i>` : ''}</div>`).join('')}` : ''; }).join('')}
@@ -283,9 +287,10 @@ function printReferral() {
   printDoc(`${docHead('Mẫu giấy chuyển tuyến (giả lập)')}<h1>GIẤY CHUYỂN TUYẾN KHÁM BỆNH, CHỮA BỆNH</h1><p class="c">Số: ${esc(d.serial_no)}</p>
     <p>Kính gửi: <b>${esc(v.to_facility)}</b></p><p>Cơ sở khám bệnh, chữa bệnh: ${HOSP.name} trân trọng giới thiệu<br>${ptLine(X.patient)}<br>
     Đã được khám bệnh tại: ${esc(e.room_name)}, ngày ${dmy(e.queue_date)}, mã lượt khám ${esc(e.code)}</p>
-    <p><b>TÓM TẮT BỆNH ÁN</b><br>Dấu hiệu lâm sàng: ${esc(X.exam_text || '')}<br>Kết quả cận lâm sàng: ${cls || 'không có'}<br>
+    <p><b>TÓM TẮT BỆNH ÁN</b>${bgLine()}<br>Dấu hiệu lâm sàng: ${esc(X.exam_text || '')}<br>Kết quả cận lâm sàng: ${cls || 'không có'}<br>
     Chẩn đoán: ${v.diagnosis ? `${esc(v.diagnosis.name_vi)} (${esc(v.diagnosis.code)})` : ''}<br>Phương pháp, thủ thuật, thuốc đã sử dụng: ${esc(v.treatment || '')}<br>
     Tình trạng người bệnh lúc chuyển tuyến: ${esc(v.condition || '')}<br>Lí do chuyển tuyến: <b>${CRIT[v.criteria]}</b>. ${esc(v.reason)}</p>
+    ${(() => { const at = (X.attachments || []).filter(a => a.document_id === d.id); return at.length ? `<p><b>HỒ SƠ ĐÍNH KÈM</b> (bản điện tử, kèm theo giấy này)<br>${at.map((a, i) => `${i + 1}. ${esc(a.filename)} <small>(${ATT_CAT[a.category]}, ${fsize(a.size)}, SHA-256 ${esc(a.sha256.slice(0, 16))}…)</small>`).join('<br>')}</p>` : ''; })()}
     <div class="sig"><div></div><div>${dateLine(new Date(d.issued_at))}<br><b>Người hành nghề khám bệnh, chữa bệnh</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${esc(docSigner('REFERRAL_OUT'))}</div></div>`);
 }
 
@@ -298,6 +303,9 @@ const icdSearch = async el => {
   $('#' + el.getAttribute('list')).innerHTML = found.map(i => `<option value="${esc(i.code)} · ${esc(i.name_vi)}">`).join('');
 };
 
+// Dòng tiền sử/bệnh nền in trên phiếu (chỉ tình trạng còn áp dụng), để nơi nhận phiếu biết bệnh nền khi chỉ định/cấp thuốc
+const bgLine = () => { const on = (X.conditions || []).filter(k => k.active);
+  return on.length ? `<br>Tiền sử / bệnh nền: ${on.map(k => `${COND[k.kind]}: ${esc(k.note)}${k.icd10_code ? ` (${esc(k.icd10_code)})` : ''}${k.since_year ? `, từ ${k.since_year}` : ''}`).join('; ')}` : ''; };
 // Tiền sử và bệnh mạn tính của bệnh nhân (không khóa theo lượt khám); "đã khỏi" ẩn khỏi danh sách chính nhưng không xóa
 const COND = { CHRONIC: 'Bệnh mạn tính', HISTORY: 'Tiền sử bệnh', SURGERY: 'Phẫu thuật', FAMILY: 'Gia đình' };
 function conditionsCard() {
@@ -320,17 +328,21 @@ const setCondition = act(async (id, active) => { await api('PATCH', `/conditions
 const redrawConditions = async () => { X.conditions = await api('GET', `/patients/${X.patient.id}/conditions`); $('#condcard').outerHTML = conditionsCard(); };
 
 // Ghi chú diễn tiến SOAP: chỉ thêm, không sửa; lưu kèm các nội dung khác đang soạn để không mất
-function notesCard(ed) {
+// BR-EMR-6: hồ sơ đã khóa vẫn thêm được ghi chú bổ sung, bắt buộc lý do
+function notesCard(ed, amend) {
   const f = (k, n) => `<div><label for="sn_${k}">${n}</label><textarea id="sn_${k}" rows="2"></textarea></div>`;
-  return `<div class="card"><h3>Diễn tiến (SOAP)</h3>${X.notes.map(n => `<div style="border-left:3px solid var(--line,#d5dde3);padding-left:10px;margin-bottom:10px"><small class="mut">${when(n.created_at)} · ${esc(n.author)}</small>
+  return `<div class="card"><h3>Diễn tiến (SOAP)</h3>${X.notes.map(n => `<div style="border-left:3px solid ${n.addendum_reason ? 'var(--warn)' : 'var(--line,#d5dde3)'};padding-left:10px;margin-bottom:10px"><small class="mut">${when(n.created_at)} · ${esc(n.author)}</small>${n.addendum_reason ? ` <span class="chip warn" title="Thêm sau khi hồ sơ đã khóa">Bổ sung: ${esc(n.addendum_reason)}</span>` : ''}
       ${[['S', n.subjective], ['O', n.objective], ['A', n.assessment], ['P', n.plan]].filter(([, v]) => v).map(([k, v]) => `<div><b>${k}:</b> ${esc(v)}</div>`).join('')}</div>`).join('') || '<span class="mut">Chưa có ghi chú diễn tiến</span>'}
-    ${ed ? `<div class="grid" style="margin-top:10px">${f('subjective', 'S: Triệu chứng người bệnh kể')}${f('objective', 'O: Khám, kết quả')}${f('assessment', 'A: Đánh giá')}${f('plan', 'P: Kế hoạch')}</div>
-      <button style="margin-top:8px" onclick="addNote()">Thêm ghi chú</button> <small class="mut">Ghi chú đã thêm không sửa được; nếu sai, thêm ghi chú mới.</small>` : ''}</div>`;
+    ${ed || amend ? `<div class="grid" style="margin-top:10px">${f('subjective', 'S: Triệu chứng người bệnh kể')}${f('objective', 'O: Khám, kết quả')}${f('assessment', 'A: Đánh giá')}${f('plan', 'P: Kế hoạch')}</div>
+      ${amend ? '<div style="margin-top:8px"><label for="snReason">Lý do bổ sung *</label><input id="snReason" placeholder="vd: bổ sung kết quả hội chẩn qua điện thoại"></div>' : ''}
+      <button style="margin-top:8px" onclick="addNote()">${amend ? 'Thêm ghi chú bổ sung' : 'Thêm ghi chú'}</button> <small class="mut">${amend ? 'Hồ sơ đã khóa: ghi chú bổ sung được lưu kèm một bản điều chỉnh.' : 'Ghi chú đã thêm không sửa được; nếu sai, thêm ghi chú mới.'}</small>` : ''}</div>`;
 }
 const addNote = act(async () => {
   const b = Object.fromEntries(['subjective', 'objective', 'assessment', 'plan'].map(k => [k, $('#sn_' + k).value]));
   if (!Object.values(b).some(v => v.trim())) return toast('Nhập ít nhất một phần S, O, A hoặc P', true);
-  await saveClinical();
-  await api('POST', `/encounters/${XID}/notes`, { ...b, version: X.encounter.version });
+  const locked = !!X.encounter.locked_at;
+  if (locked && !$('#snReason').value.trim()) return toast('Cần nhập lý do bổ sung', true);
+  if (!locked) await saveClinical(); // hồ sơ đã khóa: phần khác sửa qua "Lưu điều chỉnh"
+  await api('POST', `/encounters/${XID}/notes`, { ...b, reason: locked ? $('#snReason').value : undefined, version: X.encounter.version });
   toast('Đã thêm ghi chú'); V.exam(XID);
 });

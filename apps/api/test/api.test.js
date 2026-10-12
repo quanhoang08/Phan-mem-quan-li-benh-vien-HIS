@@ -17,6 +17,7 @@ before(async () => {
   svc = Object.fromEntries(ok(await rec('GET', '/catalog/services')).map(s => [s.code, s.id]));
   drug = Object.fromEntries(ok(await rec('GET', '/catalog/drugs')).map(d => [d.code, d.id]));
   pid = Object.fromEntries((await pool.query('SELECT code, id FROM patient')).rows.map(p => [p.code, p.id]));
+  await pool.query('UPDATE schedule_session SET capacity=200'); // các test đăng ký nhiều lượt cùng phòng trong ngày; sức chứa thử riêng ở features.test.js
   ok(await cash('POST', '/shifts', { opening_float: 0 }), 201); // BR-SHIFT-1: phải mở ca mới thu được
 });
 // BR-BILL-5/6: lượt khám không BHYT đóng phí khám trước khi vào khám, tiền chỉ định trước khi KTV thực hiện
@@ -845,7 +846,7 @@ test('hồ sơ nền và ghi chú SOAP: chỉ bác sĩ, ICD-10 hợp lệ, chỉ
   ok(await doc('PATCH', `/conditions/${k.id}`, { active: false }));
   const conds = ok(await doc('GET', `/patients/${p.id}/conditions`));
   assert.deepEqual(conds.map(c => c.active), [true, false]); // đang áp dụng xếp trước
-  assert.match(conds[1].icd10_name, /Tăng huyết áp/);
+  assert.match(conds[1].icd10_name, /tăng huyết áp/i);
   const v0 = ok(await doc('GET', `/encounters/${e.id}`)).encounter.version;
   const note = (b, version) => doc('POST', `/encounters/${e.id}/notes`, { ...b, version });
   const n = ok(await note({ subjective: 'Ho 3 ngày', plan: 'Uống thuốc, tái khám sau 5 ngày' }, v0), 201);

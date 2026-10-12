@@ -2,10 +2,10 @@ import { route, A } from '../router.js';
 import { AppError, validation, notFound } from '../errors.js';
 import { hashPassword } from '../password.js';
 
-const ROLES = ['RECEPTION', 'DOCTOR', 'LAB_TECH', 'PHARMACIST', 'CASHIER', 'MANAGER', 'ADMIN'];
+const ROLES = ['RECEPTION', 'DOCTOR', 'LAB_TECH', 'PHARMACIST', 'CASHIER', 'MANAGER', 'ADMIN', 'NURSE'];
 
 // ---------- tài khoản ----------
-route('GET', '/admin/users', [A], c => c.db.all('SELECT id, username, full_name, role, active FROM app_user ORDER BY role, username'));
+route('GET', '/admin/users', [A], c => c.db.all('SELECT id, username, full_name, role, active, totp_enabled, (locked_until > now()) locked, locked_until FROM app_user ORDER BY role, username'));
 
 route('POST', '/admin/users', [A], async c => {
   const { username, full_name, role, password } = c.b;
@@ -39,7 +39,7 @@ route('PATCH', '/admin/users/:id', [A], async c => {
 // ---------- danh mục: dịch vụ, thuốc, ICD-10 ----------
 // Bảng/cột lấy từ danh sách trắng nên an toàn khi ghép vào SQL. Đổi giá không ảnh hưởng hóa đơn cũ (giá đã chụp).
 const KINDS = {
-  services: { table: 'service_catalog', key: 'id', order: 'grp, code', cols: { code: 'text', name: 'text', grp: 'group', price: 'money', insurance_covered: 'bool', active: 'bool' } },
+  services: { table: 'service_catalog', key: 'id', order: 'grp, code', cols: { code: 'text', name: 'text', grp: 'group', price: 'money', insurance_covered: 'bool', proc_kind: 'opt', active: 'bool' } },
   drugs: { table: 'drug', key: 'id', order: 'name', cols: { code: 'text', name: 'text', unit: 'text', allergy_class: 'opt', price: 'money', insurance_covered: 'bool', reorder_level: 'money', active: 'bool' } },
   icd10: { table: 'icd10', key: 'code', order: 'code', cols: { code: 'text', name_vi: 'text' } },
 };
@@ -54,7 +54,7 @@ function clean(kind, b, partial) {
     else if (type === 'opt') out[col] = String(v ?? '').trim() || null;
     else if (type === 'money') { if (!Number.isInteger(Number(v)) || Number(v) < 0) throw validation(`${col} phải là số nguyên không âm`); out[col] = Number(v); }
     else if (type === 'bool') out[col] = !!v;
-    else if (type === 'group') { if (!['EXAM', 'LAB', 'IMAGING', 'FUNCTIONAL'].includes(v)) throw validation('Nhóm dịch vụ không hợp lệ'); out[col] = v; }
+    else if (type === 'group') { if (!['EXAM', 'LAB', 'IMAGING', 'FUNCTIONAL', 'BED', 'PROCEDURE'].includes(v)) throw validation('Nhóm dịch vụ không hợp lệ'); out[col] = v; }
   }
   if (!partial && 'insurance_covered' in kind.cols) out.insurance_covered ??= false;
   return out;

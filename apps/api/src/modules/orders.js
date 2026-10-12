@@ -27,7 +27,7 @@ route('POST', '/encounters/:id/consults', [D], async c => {
 });
 
 // Danh sách bệnh nhân được mời tới một phòng hôm nay
-route('GET', '/consults', [D], c => c.db.all(`SELECT k.id, k.nth, k.reason, k.ordered_at, (e.benefit_rate_snapshot=0 AND k.prepayment_id IS NULL) prepay_required, e.id encounter_id, e.code enc_code, fr.name from_room, p.code patient_code, p.full_name, p.sex, p.dob
+route('GET', '/consults', [D], c => c.db.all(`SELECT k.id, k.nth, k.reason, k.ordered_at, (e.benefit_rate_snapshot=0 AND NOT e.emergency AND k.prepayment_id IS NULL) prepay_required, e.id encounter_id, e.code enc_code, fr.name from_room, p.code patient_code, p.full_name, p.sex, p.dob
   FROM encounter_consult k JOIN encounter e ON e.id=k.encounter_id JOIN room r ON r.id=k.room_id JOIN room fr ON fr.id=e.room_id JOIN patient p ON p.id=e.patient_id
   WHERE k.status='ORDERED' AND e.queue_date=$1 AND ($2::text IS NULL OR r.code=$2) ORDER BY k.ordered_at`, todayISO(), c.q.room || null));
 
@@ -66,7 +66,7 @@ route('POST', '/encounters/:id/service-orders', [D], async c => {
   const ids = c.b.service_ids;
   if (!Array.isArray(ids) || !ids.length) throw validation('Chọn ít nhất một dịch vụ');
   for (const id of ids) {
-    const s = await c.db.one("SELECT * FROM service_catalog WHERE id=$1 AND grp<>'EXAM' AND active", id);
+    const s = await c.db.one("SELECT * FROM service_catalog WHERE id=$1 AND grp NOT IN ('EXAM','BED','PROCEDURE') AND active", id);
     if (!s) throw validation('Dịch vụ không hợp lệ');
     if (await c.db.one('SELECT 1 x FROM service_order WHERE encounter_id=$1 AND service_id=$2', e.id, s.id)) throw new AppError(409, 'DUPLICATE_ORDER', `Dịch vụ ${s.name} đã được chỉ định`);
     await c.db.run('INSERT INTO service_order(encounter_id,service_id,price_snapshot,covered_snapshot,ordered_by) VALUES ($1,$2,$3,$4,$5)', e.id, s.id, s.price, s.insurance_covered, c.user.id);

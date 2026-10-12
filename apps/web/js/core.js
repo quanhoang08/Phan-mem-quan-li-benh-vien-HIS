@@ -12,16 +12,17 @@ const chip = s => `<span class="chip ${STC[s] || ''}">${ST[s] || esc(s)}</span>`
 const SEX = { MALE: 'Nam', FEMALE: 'Nữ' };
 const PRIO = { CHILD: 'Trẻ dưới 1 tuổi', ELDERLY: 'Từ 65 tuổi', PREGNANT: 'Phụ nữ có thai', DISABLED: 'Không tự đi lại được', MERIT: 'Người có công' };
 const prioChip = p => p ? `<span class="chip warn" title="Ưu tiên khám">★ ${PRIO[p]}</span>` : '';
-const ROLE = { RECEPTION: 'Lễ tân', DOCTOR: 'Bác sĩ', LAB_TECH: 'KTV', PHARMACIST: 'Dược sĩ', CASHIER: 'Thu ngân', MANAGER: 'Quản lý', ADMIN: 'Quản trị' };
+const ROLE = { RECEPTION: 'Lễ tân', DOCTOR: 'Bác sĩ', LAB_TECH: 'KTV', PHARMACIST: 'Dược sĩ', CASHIER: 'Thu ngân', MANAGER: 'Quản lý', ADMIN: 'Quản trị', NURSE: 'Điều dưỡng' };
 const ALLERGY_CLASSES = ['PENICILLIN', 'NSAID', 'SULFA', 'CEPHALOSPORIN', 'MACROLIDE'];
 const MENU = {
-  RECEPTION: [['reg', 'Đăng ký khám'], ['pts', 'Tra cứu bệnh nhân'], ['queue', 'Hàng đợi hôm nay'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
-  DOCTOR: [['queue', 'Hàng đợi khám'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám']],
+  RECEPTION: [['reg', 'Đăng ký khám'], ['er', 'Cấp cứu'], ['pts', 'Tra cứu bệnh nhân'], ['queue', 'Hàng đợi hôm nay'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
+  DOCTOR: [['queue', 'Hàng đợi khám'], ['er', 'Cấp cứu'], ['ip', 'Nội trú'], ['proc', 'Phòng mổ'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám']],
   LAB_TECH: [['lab', 'Danh sách chờ']],
-  PHARMACIST: [['rx', 'Đơn chờ cấp phát'], ['ret', 'Nhận trả thuốc'], ['inv', 'Tồn kho']],
-  CASHIER: [['bill', 'Hóa đơn chờ'], ['prepay', 'Thu trước'], ['refunds', 'Hoàn tiền'], ['shift', 'Ca thu ngân']],
-  MANAGER: [['rep', 'Báo cáo'], ['refunds', 'Duyệt hoàn tiền'], ['shift', 'Ca thu ngân'], ['trace', 'Truy vết'], ['audit', 'Nhật ký'], ['queue', 'Hàng đợi'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
-  ADMIN: [['admin', 'Quản trị'], ['sched', 'Lịch khám'], ['audit', 'Nhật ký'], ['trace', 'Truy vết'], ['rep', 'Báo cáo']],
+  PHARMACIST: [['rx', 'Đơn chờ cấp phát'], ['rxip', 'Cấp thuốc nội trú'], ['ret', 'Nhận trả thuốc'], ['inv', 'Tồn kho'], ['po', 'Mua hàng'], ['stk', 'Kiểm kê']],
+  CASHIER: [['bill', 'Hóa đơn chờ'], ['ip', 'Nội trú (tạm ứng)'], ['prepay', 'Thu trước'], ['refunds', 'Hoàn tiền'], ['shift', 'Ca thu ngân']],
+  MANAGER: [['dash', 'Bảng điều khiển'], ['rep', 'Báo cáo'], ['claims', 'Giám định BHYT'], ['er', 'Cấp cứu'], ['ip', 'Nội trú'], ['proc', 'Phòng mổ'], ['po', 'Duyệt mua hàng'], ['refunds', 'Duyệt hoàn tiền'], ['shift', 'Ca thu ngân'], ['trace', 'Truy vết'], ['audit', 'Nhật ký'], ['queue', 'Hàng đợi'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
+  NURSE: [['ip', 'Người bệnh nội trú'], ['er', 'Cấp cứu'], ['proc', 'Phòng mổ']],
+  ADMIN: [['admin', 'Quản trị'], ['dash', 'Bảng điều khiển'], ['sched', 'Lịch khám'], ['audit', 'Nhật ký'], ['trace', 'Truy vết'], ['rep', 'Báo cáo']],
 };
 const ICON = {
   reg: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
@@ -44,6 +45,14 @@ const ICON = {
   ret: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   refunds: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 8v8M9.5 10.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/>',
   ret: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  ip: '<path d="M3 20v-8a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v8M3 16h18M7 9V6a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v3"/>',
+  rxip: '<path d="m10.5 20.5-7-7a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7z"/><path d="M12 3v4M10 5h4"/>',
+  po: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/>',
+  stk: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  er: '<path d="M12 2 4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6z"/><path d="M12 8v6M9 11h6"/>',
+  proc: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.1-.6-.6-2.1z"/>',
+  dash: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+  claims: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
   print: '<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/>',
 };
 const icon = k => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICON[k] || ''}</svg>`;
@@ -96,7 +105,7 @@ const HOSP = { dept: 'SỞ Y TẾ TỈNH MẪU', name: 'BỆNH VIỆN ĐA KHOA H
 const docHead = (form = '') => `<div class="hd"><div>${HOSP.dept}<br><b>${HOSP.name}</b><br><small>${HOSP.addr}</small></div>
   <div><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br><u>Độc lập - Tự do - Hạnh phúc</u>${form ? `<br><small>${form}</small>` : ''}</div></div>`;
 const dateLine = (d = new Date()) => `Ngày ${d.getDate()} tháng ${d.getMonth() + 1} năm ${d.getFullYear()}`;
-function printDoc(html) { $('#print').innerHTML = `<div class="doc">${html}</div>`; window.print(); }
+function printDoc(html, kind = '') { $('#print').innerHTML = `<div class="doc ${kind}">${html}</div>`; window.print(); } // kind 'thermal': khổ giấy nhiệt 80mm
 
 const V = {};
 let ME, REFRESH, XID, CAT = {};
@@ -163,9 +172,21 @@ const main = html => {
   clearTimeout(m.t); m.t = setTimeout(() => m.classList.remove('enter'), 900);
 };
 
+let CHALLENGE = '';
 async function login() {
-  try { ME = await api('POST', '/auth/login', { username: $('#lu').value, password: $('#lp').value }); await start(); }
-  catch (e) { toast(e.message, true); }
+  if (CHALLENGE) return login2();
+  try {
+    const r = await api('POST', '/auth/login', { username: $('#lu').value, password: $('#lp').value });
+    if (r.need_2fa) { CHALLENGE = r.challenge; $('#l2').hidden = false; $('#l2c').focus(); $('#lu').disabled = $('#lp').disabled = true; return toast('Nhập mã xác thực từ ứng dụng trên điện thoại'); }
+    ME = r; await start();
+  } catch (e) { toast(e.message, true); }
+}
+async function login2() {
+  try { ME = await api('POST', '/auth/login/2fa', { challenge: CHALLENGE, code: $('#l2c').value }); CHALLENGE = ''; await start(); }
+  catch (e) {
+    toast(e.message, true);
+    if (['CHALLENGE_EXPIRED', 'LOCKED'].includes(e.code)) { CHALLENGE = ''; $('#l2').hidden = true; $('#lu').disabled = $('#lp').disabled = false; }
+  }
 }
 async function logout() { await api('POST', '/auth/logout').catch(() => {}); location.reload(); }
 
@@ -177,6 +198,8 @@ async function start() {
   tick(); setInterval(tick, 20000);
   [CAT.icd, CAT.services, CAT.drugs, CAT.rooms] = await Promise.all(['/catalog/icd10', '/catalog/services', '/catalog/drugs', '/catalog/rooms'].map(u => api('GET', u)));
   const es = new EventSource('/api/v1/events/stream');
+  es.addEventListener('notice', e => pushNotice(JSON.parse(e.data)));
+  drawBell();
   es.addEventListener('counts', e => {
     flow(JSON.parse(e.data));
     // không làm mới khi người dùng đang gõ hoặc đã nhập dở (ô chữ dài, ô số), tránh mất dữ liệu chưa lưu
@@ -197,13 +220,13 @@ function nav(view, arg) {
   if (view !== 'exam') XID = null;
   $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
   const m = MENU[ME.role].find(([k]) => k === view);
-  $('#crumb').innerHTML = m ? esc(m[1]) : { exam: 'Bệnh án điện tử', invoice: 'Thanh toán viện phí' }[view] || '';
+  $('#crumb').innerHTML = m ? esc(m[1]) : { exam: 'Bệnh án điện tử', invoice: 'Thanh toán viện phí', adm: 'Hồ sơ nội trú', procd: 'Ca phẫu thuật / thủ thuật', sec: 'Bảo mật tài khoản' }[view] || '';
   scrollTo(0, 0);
   V[view](arg);
 }
 
 async function boot() {
-  $('#demo').innerHTML = [['reception', 'RECEPTION'], ['doctor', 'DOCTOR'], ['lab', 'LAB_TECH'], ['pharmacist', 'PHARMACIST'], ['cashier', 'CASHIER'], ['manager', 'MANAGER'], ['admin', 'ADMIN']]
+  $('#demo').innerHTML = [['reception', 'RECEPTION'], ['doctor', 'DOCTOR'], ['lab', 'LAB_TECH'], ['pharmacist', 'PHARMACIST'], ['cashier', 'CASHIER'], ['manager', 'MANAGER'], ['admin', 'ADMIN'], ['dieuduong', 'NURSE']]
     .map(([u, r]) => `<button onclick="$('#lu').value='${u}';$('#lp').value='his12345';$('#lp').focus()">${ROLE[r]}<small>${u}</small></button>`).join('');
   try { ME = await api('GET', '/me'); await start(); } catch { $('#login').hidden = false; }
 }

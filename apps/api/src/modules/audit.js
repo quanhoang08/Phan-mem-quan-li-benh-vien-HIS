@@ -1,5 +1,5 @@
 import { route, M, A } from '../router.js';
-import { notFound } from '../errors.js';
+import { notFound, validation } from '../errors.js';
 
 // Nhật ký truy vết: lọc theo bệnh nhân, người dùng, hành động, lượt khám, thời gian
 route('GET', '/audit', [M, A], c => {
@@ -14,6 +14,14 @@ route('GET', '/audit', [M, A], c => {
   return c.db.all(`SELECT a.id, a.at, a.actor_role, u.full_name actor, u.username, a.action, a.entity_type, a.entity_id, a.detail, pt.code patient_code, e.code encounter_code
     FROM audit_log a LEFT JOIN app_user u ON u.id=a.actor_id LEFT JOIN patient pt ON pt.id=a.patient_id LEFT JOIN encounter e ON e.id=a.encounter_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY a.id DESC LIMIT 300`, ...p);
+});
+
+// BR-AUD-3: báo cáo truy cập: ai đã xem hồ sơ một bệnh nhân (mã BN), gom theo người và loại thao tác xem
+route('GET', '/audit/access', [M, A], async c => {
+  if (!c.q.patient) throw validation('Nhập mã bệnh nhân');
+  return c.db.all(`SELECT u.full_name actor, u.username, a.actor_role, a.action, count(*)::int n, min(a.at) first_at, max(a.at) last_at
+    FROM audit_log a LEFT JOIN app_user u ON u.id=a.actor_id JOIN patient p ON p.id=a.patient_id
+    WHERE p.code=$1 AND (a.action LIKE 'VIEW\_%' OR a.action IN ('PATIENT_LOOKUP','EXPORT')) GROUP BY u.full_name, u.username, a.actor_role, a.action ORDER BY max(a.at) DESC LIMIT 200`, c.q.patient);
 });
 
 // Truy ngược một lượt khám/hóa đơn về từng chỉ định, từng dòng thuốc, từng người thao tác (SPEC mục 10, M6)

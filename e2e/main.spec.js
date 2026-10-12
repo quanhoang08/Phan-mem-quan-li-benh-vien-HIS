@@ -117,6 +117,7 @@ test('đường chính: ví dụ SPEC 4.7 qua 6 vai trò, hóa đơn 120.000 đ�
 
   // Quản lý: báo cáo + truy vết đến từng người
   await loginAs(page, 'manager');
+  await page.getByRole('button', { name: 'Báo cáo' }).click(); // màn mặc định của quản lý là Bảng điều khiển
   await expect(page.locator('#revenue')).toHaveText('0 ₫');
   await page.getByRole('button', { name: 'Truy vết' }).click();
   const code = await page.evaluate(async () => (await api('GET', '/encounters')).find(e => e.label === 'NOI-001').code);

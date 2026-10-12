@@ -1,5 +1,5 @@
 import { route, D } from '../router.js';
-import { validation, notFound } from '../errors.js';
+import { AppError, validation, notFound } from '../errors.js';
 import { getEnc, checkVersion, bump, assertEditable } from './encounters.js';
 
 const KINDS = ['CHRONIC', 'HISTORY', 'SURGERY', 'FAMILY'];
@@ -7,7 +7,7 @@ const KINDS = ['CHRONIC', 'HISTORY', 'SURGERY', 'FAMILY'];
 export const conditionsOf = (db, patientId) => db.all(`SELECT k.id, k.kind, k.icd10_code, i.name_vi icd10_name, k.note, k.since_year, k.active, k.created_at, u.full_name created_by
   FROM patient_condition k JOIN app_user u ON u.id=k.created_by LEFT JOIN icd10 i ON i.code=k.icd10_code WHERE k.patient_id=$1 ORDER BY k.active DESC, k.created_at DESC`, patientId);
 
-export const notesOf = (db, encounterId) => db.all(`SELECT n.id, n.subjective, n.objective, n.assessment, n.plan, n.created_at, u.full_name author
+export const notesOf = (db, encounterId) => db.all(`SELECT n.id, n.subjective, n.objective, n.assessment, n.plan, n.addendum_reason, n.created_at, u.full_name author
   FROM encounter_note n JOIN app_user u ON u.id=n.author_id WHERE n.encounter_id=$1 ORDER BY n.created_at, n.id`, encounterId);
 
 // BR-EMR-4: tình trạng nền thuộc về bệnh nhân (không khóa theo lượt khám). Không xóa: "đã khỏi" = active=false.
@@ -46,14 +46,22 @@ route('PATCH', '/conditions/:id', [D], async c => {
   return { id: old.id, active };
 });
 
-// BR-EMR-5: ghi chú diễn tiến SOAP, chỉ thêm. Chịu cùng khóa phiên bản và khóa hồ sơ như các nội dung lâm sàng khác.
+// BR-EMR-5: ghi chú diễn tiến SOAP, chỉ thêm. Chịu cùng khóa phiên bản và trạng thái như các nội dung lâm sàng khác.
+// BR-EMR-6: hồ sơ đã khóa (sau kết thúc khám) vẫn thêm được ghi chú BỔ SUNG, bắt buộc lý do, kèm một bản điều chỉnh (trước rỗng, sau là ghi chú).
 route('POST', '/encounters/:id/notes', [D], async c => {
-  const e = await getEnc(c, c.p.id); checkVersion(e, c.b); assertEditable(e);
+  const e = await getEnc(c, c.p.id); checkVersion(e, c.b);
+  const reason = String(c.b.reason ?? '').trim() || null;
+  if (e.locked_at) {
+    if (e.status === 'CANCELLED') throw new AppError(409, 'ENCOUNTER_STATE_INVALID', 'Lượt khám đã hủy');
+    if (!reason) throw validation('Hồ sơ đã khóa: ghi chú bổ sung cần lý do');
+  } else assertEditable(e);
   const f = Object.fromEntries(['subjective', 'objective', 'assessment', 'plan'].map(k => [k, String(c.b[k] ?? '').trim() || null]));
   if (!Object.values(f).some(Boolean)) throw validation('Ghi chú cần ít nhất một phần S, O, A hoặc P');
-  const row = await c.db.one('INSERT INTO encounter_note(encounter_id,subjective,objective,assessment,plan,author_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', e.id, f.subjective, f.objective, f.assessment, f.plan, c.user.id);
+  const add = e.locked_at ? reason : null;
+  const row = await c.db.one('INSERT INTO encounter_note(encounter_id,subjective,objective,assessment,plan,author_id,addendum_reason) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', e.id, f.subjective, f.objective, f.assessment, f.plan, c.user.id, add);
+  if (add) await c.db.run("INSERT INTO record_amendment(encounter_id,entity_type,entity_id,before,after,reason,actor_id) VALUES ($1,'NOTE',$2,'{}',$3,$4,$5)", e.id, row.id, JSON.stringify(f), add, c.user.id);
   await bump(c, e);
-  await c.audit('ADD_NOTE', 'encounter', e.id, { patient_id: e.patient_id, encounter_id: e.id, detail: { note_id: row.id } });
+  await c.audit(add ? 'ADD_NOTE_ADDENDUM' : 'ADD_NOTE', 'encounter', e.id, { patient_id: e.patient_id, encounter_id: e.id, detail: { note_id: row.id, reason: add ?? undefined } });
   c.status = 201;
   return { id: row.id, version: e.version };
 });

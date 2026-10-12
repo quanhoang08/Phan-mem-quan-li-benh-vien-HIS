@@ -32,7 +32,7 @@ function printTicket() {
   const d = RG.done, now = new Date();
   printDoc(`<div class="c"><b>${HOSP.name}</b><br><small>${HOSP.addr}</small><h1>PHIẾU SỐ THỨ TỰ KHÁM BỆNH</h1>${esc(d.room)}
     <div class="big">${esc(d.label)}</div><b>${esc(d.patient.full_name)}</b> · ${esc(d.patient.code)}<br>Mã lượt: ${esc(d.code)} · BHYT ${d.benefit_rate}%${d.route ? ' · ' + ROUTE[d.route] : ''}${d.priority ? '<br><b>★ ƯU TIÊN: ' + PRIO[d.priority] + '</b>' : ''}<br>
-    <small>${now.toLocaleString('vi-VN')}. Vui lòng chờ gọi số trước cửa phòng khám.</small></div>`);
+    <small>${now.toLocaleString('vi-VN')}. Vui lòng chờ gọi số trước cửa phòng khám.</small></div>`, 'thermal');
 }
 function renderReg() {
   const g = RG;
@@ -43,7 +43,7 @@ function renderReg() {
     <div class="row" style="margin-top:10px"><div><label for="qrs">Quét QR căn cước công dân</label><input id="qrs" autocomplete="off" value="${esc(g.qrs)}" oninput="RG.qrs=this.value" placeholder="Đặt con trỏ vào đây rồi quét QR bằng đầu đọc (hoặc dán chuỗi QR, nhấn Enter)" onkeydown="if(event.key==='Enter')scanQr(this.value)"></div></div></div>`;
 
   if (g.mode === 'done') return main(`<h2>Đăng ký khám</h2>${regSteps(4)}<div class="card"><div class="slip"><small>${HOSP.name}</small><p class="mut" style="margin:8px 0 0">Số thứ tự · ${esc(g.done.room)}</p><div class="ticket" id="ticket">${esc(g.done.label)}</div>
-    <p><b>${esc(g.done.patient.full_name)}</b> · ${esc(g.done.patient.code)}<br>Mã lượt khám <b>${esc(g.done.code)}</b> · Mức hưởng BHYT áp dụng <b>${g.done.benefit_rate}%</b> ${prioChip(g.done.priority)}${g.done.route ? `<br><span class="chip ${g.done.route === 'SELF' ? 'warn' : 'ok'}">${ROUTE[g.done.route]}</span>` : ''}</p></div>
+    <p><b>${esc(g.done.patient.full_name)}</b> · ${esc(g.done.patient.code)}<br>Mã lượt khám <b>${esc(g.done.code)}</b> · Mức hưởng BHYT áp dụng <b>${g.done.benefit_rate}%</b> ${prioChip(g.done.priority)}${g.done.appt_priority ? ' <span class="chip info">Có hẹn, ưu tiên sau diện ưu tiên</span>' : ''}${g.done.route ? `<br><span class="chip ${g.done.route === 'SELF' ? 'warn' : 'ok'}">${ROUTE[g.done.route]}</span>` : ''}</p></div>
     ${g.done.copay_exempt ? '<div class="banner ok" style="margin-top:12px">Có giấy chứng nhận không cùng chi trả còn hiệu lực: BHYT chi trả 100% lượt khám này.</div>' : ''}
     ${g.done.exam_prepay ? `<div class="banner warn" style="margin-top:12px"><b>Người bệnh không có BHYT chi trả.</b> Hướng dẫn đóng phí khám ${money(g.done.exam_prepay)} tại quầy thu ngân trước khi vào phòng khám.</div>` : ''}
     ${g.done.warning ? `<div class="banner warn" style="margin-top:12px">${esc(g.done.warning)}</div>` : ''}
@@ -163,13 +163,19 @@ const register = act(async () => {
   if (!$('#confirmInfo').checked) return toast('Hãy xác nhận thông tin bệnh nhân còn đúng (BR-ID-4)', true);
   const b = { patient_id: RG.patient.id, room_id: $('#room').value, chief_complaint: $('#cc').value, priority: $('#prio')?.value || null, ticket_id: RG.ticket_id, appointment_id: RG.appt_id, route: $('#route')?.value, referral_no: $('#refno')?.value };
   const extra = { room: $('#room').selectedOptions[0].text, patient: RG.patient };
-  try { RG = { mode: 'done', done: { ...await api('POST', '/encounters', b), ...extra } }; }
-  catch (e) {
-    if (e.code !== 'ENCOUNTER_DUPLICATE') throw e;
-    const a = await ask({ title: 'Lượt khám trùng', message: e.message, ok: 'Vẫn đăng ký',
-      fields: [{ id: 'reason', label: 'Lý do đăng ký thêm', type: 'textarea', required: true }] });
-    if (!a) return;
-    RG = { mode: 'done', done: { ...await api('POST', '/encounters', { ...b, confirm_duplicate: true, reason: a.reason }), ...extra } };
+  // trùng lượt (BR-ENC-1), buổi đủ chỗ/nghỉ (BR-APPT-8): server chặn, lễ tân vẫn nhận được kèm lý do (mỗi loại hỏi một lần)
+  const ASK = { ENCOUNTER_DUPLICATE: ['Lượt khám trùng', 'Lý do đăng ký thêm', r => ({ confirm_duplicate: true, reason: r })],
+    SESSION_FULL: ['Buổi khám đã đủ chỗ', 'Lý do vẫn tiếp nhận (vd: bác sĩ đồng ý nhận thêm)', r => ({ capacity_override: r })],
+    SESSION_OFF: ['Buổi khám đang nghỉ', 'Lý do vẫn tiếp nhận', r => ({ capacity_override: r })] };
+  for (;;) {
+    try { RG = { mode: 'done', done: { ...await api('POST', '/encounters', b), ...extra } }; break; }
+    catch (e) {
+      const k = ASK[e.code];
+      if (!k) throw e;
+      const a = await ask({ title: k[0], message: e.message, ok: 'Vẫn đăng ký', fields: [{ id: 'reason', label: k[1], type: 'textarea', required: true }] });
+      if (!a) return;
+      Object.assign(b, k[2](a.reason));
+    }
   }
   renderReg();
 });

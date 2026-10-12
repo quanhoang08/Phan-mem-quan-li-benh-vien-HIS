@@ -14,7 +14,7 @@ main h1{margin:0 0 4px;font-size:28px}
 #res .banner{text-align:left;font-size:17px;margin:0}
 #cam video{width:100%;max-height:300px;border-radius:10px;background:#000}
 #slip{display:none}
-@media print{body>*:not(#slip){display:none}#slip{display:block}}
+@media print{body>*:not(#slip){display:none!important}html body>#slip{display:block!important}@page{size:80mm 120mm;margin:4mm}#slip *{animation:none!important}}
 </style>
 </head>
 <body>

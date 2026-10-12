@@ -4,10 +4,14 @@ export const SHIFT_WINDOW = { MORNING: [7 * 60, 11 * 60 + 30], AFTERNOON: [13 * 
 const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 // Giờ hẹn dự kiến của số thứ tự `slotNo` (từ 1), làm tròn xuống bội của 5 phút
-export function slotTime(shift, slotNo, capacity) {
+export function slotMinutes(shift, slotNo, capacity) {
   const [from, to] = SHIFT_WINDOW[shift];
-  return hhmm(from + Math.floor((slotNo - 1) * (to - from) / capacity / 5) * 5);
+  return from + Math.floor((slotNo - 1) * (to - from) / capacity / 5) * 5;
 }
+export const slotTime = (shift, slotNo, capacity) => hhmm(slotMinutes(shift, slotNo, capacity));
+
+// Buổi của một thời điểm (phút kể từ 00:00): trước 12:00 là sáng
+export const shiftAt = nowMinutes => (nowMinutes < 12 * 60 ? 'MORNING' : 'AFTERNOON');
 
 // Buổi đã kết thúc khi đồng hồ (phút kể từ 00:00) chạm giờ cuối buổi
 export const shiftEnded = (shift, nowMinutes) => nowMinutes >= SHIFT_WINDOW[shift][1];

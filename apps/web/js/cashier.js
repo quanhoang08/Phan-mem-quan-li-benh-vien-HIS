@@ -40,7 +40,7 @@ V.bill = act(async () => {
 });
 
 let PAYKEY, INV; // một khóa cho mỗi lần mở hóa đơn: bấm lặp/gửi lại không thu hai lần
-const KIND = { EXAM: 'Khám bệnh', CONSULT: 'Khám thêm', SERVICE: 'Dịch vụ CLS', DRUG: 'Thuốc' };
+const KIND = { EXAM: 'Khám bệnh', CONSULT: 'Khám thêm', SERVICE: 'Dịch vụ CLS', DRUG: 'Thuốc', BED: 'Ngày giường', PROCEDURE: 'Thủ thuật' };
 // Tỷ lệ thực áp có thể khác mức hưởng thẻ: miễn đồng chi trả (BR-INS-6) hoặc trái tuyến (BR-INS-5)
 const ROUTE_NAME = { PRIMARY: 'đúng tuyến', REFERRAL: 'chuyển tuyến', EMERGENCY: 'cấp cứu', SELF: 'không đúng tuyến' };
 const rateNote = i => i.benefit_rate > i.card_rate ? ` (thẻ ${i.card_rate}%, miễn đồng chi trả vì tổng chi phí BHYT dưới 15% lương cơ sở)` : '';
@@ -73,7 +73,7 @@ V.invoice = act(async id => {
   ${i.lines.map(l => `<tr><td><span class="chip mute">${KIND[l.kind]}</span></td><td>${esc(l.name)}</td><td class="n">${l.qty}</td><td class="n">${money(l.unit_price)}</td><td class="n">${money(l.total)}</td>
     <td class="n">${money(l.insurance_amount)}</td><td class="n">${money(l.patient_amount)}</td></tr>`).join('')}
   <tr class="tot"><td colspan="4">Cộng</td><td class="n" id="invTotal">${money(i.total)}</td><td class="n">${money(i.insurance_amount)}</td><td class="n" id="invPatient">${money(i.patient_amount)}</td></tr>
-  ${i.prepaid_amount ? `<tr><td colspan="6">Đã thu trước (phí khám, chỉ định CLS)${i.prepayments.map(x => `<small>· ${money(x.amount)} ${METHOD[x.method]} ${when(x.paid_at)}</small>`).join(' ')}</td><td class="n">− ${money(i.prepaid_amount)}</td></tr>
+  ${i.prepaid_amount ? `<tr><td colspan="6">${i.admission_id ? 'Trừ tạm ứng' : 'Đã thu trước (phí khám, chỉ định CLS)'}${i.prepayments.map(x => `<small>· ${money(x.amount)} ${METHOD[x.method]} ${when(x.paid_at)}</small>`).join(' ')}</td><td class="n">− ${money(i.prepaid_amount)}</td></tr>
     <tr class="tot"><td colspan="6">Còn phải thu</td><td class="n" id="invDue">${money(i.due)}</td></tr>` : ''}</table></div>
   <div>${side}</div></div>`);
 });
@@ -115,7 +115,7 @@ function printReceipt() {
     <table><tr><th>STT</th><th>Nội dung</th><th>SL</th><th>Đơn giá</th><th>Thành tiền</th><th>BHYT trả</th><th>Người bệnh trả</th></tr>
     ${i.lines.map((l, k) => `<tr><td class="c">${k + 1}</td><td>${esc(l.name)}</td><td class="c">${l.qty}</td><td class="r">${money(l.unit_price)}</td><td class="r">${money(l.total)}</td><td class="r">${money(l.insurance_amount)}</td><td class="r">${money(l.patient_amount)}</td></tr>`).join('')}
     <tr><td colspan="4"><b>Tổng cộng</b></td><td class="r"><b>${money(i.total)}</b></td><td class="r"><b>${money(i.insurance_amount)}</b></td><td class="r"><b>${money(i.patient_amount)}</b></td></tr></table>
-    <p>${i.prepaid_amount ? `Đã thu trước (phí khám, chỉ định cận lâm sàng): ${money(i.prepaid_amount)}<br>` : ''}Số tiền thu lần này: <b>${money(p.amount)}</b><br>Viết bằng chữ: <i>${docSo(p.amount)}</i></p>
+    <p>${i.prepaid_amount ? `${i.admission_id ? 'Trừ tạm ứng' : 'Đã thu trước (phí khám, chỉ định cận lâm sàng)'}: ${money(i.prepaid_amount)}<br>` : ''}Số tiền thu lần này: <b>${money(p.amount)}</b><br>Viết bằng chữ: <i>${docSo(p.amount)}</i></p>
     <div class="sig"><div><b>Người nộp tiền</b><br><small>(Ký, ghi rõ họ tên)</small></div><div>${dateLine(new Date(p.paid_at))}<br><b>Người thu tiền</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${esc(p.cashier || '')}</div></div>`);
 }
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Màn hình gọi số · HIS mini</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+body{margin:0;background:#0b2a30}
+#tvb{min-height:100vh;border-radius:0}
+#bar{position:fixed;right:12px;bottom:12px;z-index:5;display:flex;gap:8px;opacity:.85}
+#off{position:fixed;left:0;right:0;top:0;padding:8px;text-align:center;background:#b42318;color:#fff;font-weight:600;display:none;z-index:6}
+</style>
+</head>
+<body>
+<div id="off">Mất kết nối máy chủ, đang thử kết nối lại…</div>
+<div class="tvb" id="tvb"><div class="tvhead"><b>BỆNH VIỆN ĐA KHOA HIS MINI</b><span>KHU KHÁM BỆNH NGOẠI TRÚ</span><span id="tvclock"></span></div>
+  <div class="tvgrid" id="grid"></div>
+  <div class="tvfoot">Quý khách vui lòng chờ gọi số trước cửa phòng khám. Mang theo CCCD và thẻ BHYT khi vào khám.</div></div>
+<div id="bar"><button id="snd">🔈 Bật âm thanh</button><button id="fs">Toàn màn hình</button></div>
+<script>
+// Màn hình công khai đặt ở phòng chờ: không đăng nhập, chỉ tên viết tắt. Âm thanh cần người dùng bấm một lần (quy định của trình duyệt).
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let sound = false, AC, seen = null;
+const viVoice = () => window.speechSynthesis?.getVoices().find(v => v.lang.toLowerCase().startsWith('vi'));
+function chime() {
+  if (!AC) return;
+  [[880, 0], [660, 0.45]].forEach(([f, t]) => { const o = AC.createOscillator(), g = AC.createGain(), at = AC.currentTime + t; o.frequency.value = f; o.connect(g); g.connect(AC.destination);
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.35, at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.8); o.start(at); o.stop(at + 0.85); });
+}
+const speak = t => { const v = viVoice(); if (v) speechSynthesis.speak(Object.assign(new SpeechSynthesisUtterance(t), { lang: 'vi-VN', rate: 0.9, voice: v })); };
+function announce(c) { if (!sound) return; chime(); const t = `Mời bệnh nhân số ${+c.label.split('-').pop()}, vào ${c.room}`; setTimeout(() => { speak(t); speak(t); }, 1300); }
+$('#snd').onclick = () => { sound = !sound; $('#snd').textContent = sound ? '🔊 Đang bật âm thanh' : '🔈 Bật âm thanh'; if (sound) { AC ??= new (window.AudioContext || window.webkitAudioContext)(); AC.resume(); chime(); } };
+$('#fs').onclick = () => document.documentElement.requestFullscreen?.();
+const clock = () => { $('#tvclock').textContent = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); };
+setInterval(clock, 10000); clock();
+
+function render(s) {
+  if (s.last_call && seen !== null && s.last_call.at > seen) announce(s.last_call); // lần đầu mở không đọc lại các lượt gọi cũ
+  seen = s.last_call ? s.last_call.at : (seen ?? '');
+  $('#grid').innerHTML = s.rooms.map(r => `<div class="tvroom${r.calling ? ' calling' : ''}"><div class="tvname">${esc(r.name)}</div>
+    ${r.calling ? `<div class="tvcall"><small>ĐANG MỜI VÀO</small><b>${esc(r.calling.label)}</b><span>${esc(r.calling.name)}</span></div>` : ''}
+    <small>ĐANG KHÁM</small><div class="tvnum">${r.serving.map(e => esc(e.label.split('-').pop())).join(' · ') || '—'}</div><div class="tvwho">${r.serving.map(e => esc(e.name)).join(', ')}</div>
+    ${r.back.length ? `<div class="tvback">Mời vào lại (đã có kết quả): <b>${r.back.map(e => esc(e.label)).join(', ')}</b></div>` : ''}
+    <small>SỐ TIẾP THEO</small><div class="tvnext">${r.next.map(e => `<span>${esc(e.label)}${e.priority ? ' ★' : ''}<em>${esc(e.name)}</em></span>`).join('') || '<span class="tvnone">Không có người chờ</span>'}</div></div>`).join('');
+}
+fetch('/api/v1/display/state').then(r => r.json()).then(render).catch(() => {});
+const es = new EventSource('/api/v1/display/stream');
+es.addEventListener('state', e => { $('#off').style.display = 'none'; render(JSON.parse(e.data)); });
+es.onerror = () => { $('#off').style.display = 'block'; };
+</script>
+</body>
+</html>

@@ -13,7 +13,7 @@ const analytesFor = async (c, serviceId, sex, dob) =>
 
 route('GET', '/lab/worklist', [L], async c => {
   const rows = await c.db.all(`SELECT o.id, o.ordered_at, o.service_id, s.code, s.name, s.grp, e.code enc_code, p.code patient_code, p.full_name, p.sex, p.dob,
-      (e.benefit_rate_snapshot=0 AND o.prepayment_id IS NULL) prepay_required
+      (e.benefit_rate_snapshot=0 AND NOT e.emergency AND o.prepayment_id IS NULL) prepay_required
     FROM service_order o JOIN service_catalog s ON s.id=o.service_id JOIN encounter e ON e.id=o.encounter_id JOIN patient p ON p.id=e.patient_id
     WHERE o.status='ORDERED' AND ($1::service_group IS NULL OR s.grp=$1::service_group) ORDER BY o.ordered_at`, c.q.group || null);
   for (const r of rows) r.analytes = await analytesFor(c, r.service_id, r.sex, r.dob);
