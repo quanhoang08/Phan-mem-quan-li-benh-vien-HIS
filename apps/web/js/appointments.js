@@ -24,7 +24,7 @@ V.appt = act(async () => {
         <td><b>${esc(a.full_name)}</b><br><small>${esc(a.patient_code)}${a.phone ? ' · ' + esc(a.phone) : ''}</small></td><td>${esc(a.room_name)}<br><small>${esc(a.doctor_name)} · ${a.shift === 'MORNING' ? 'sáng' : 'chiều'}</small></td>
         <td>${esc(a.reason || '—')}${a.cancel_reason ? `<br><small>Hủy: ${esc(a.cancel_reason)}</small>` : ''}</td><td>${a.channel === 'PORTAL' ? 'Cổng bệnh nhân' : 'Quầy'}</td>
         <td><span class="chip ${APPT_ST[a.status][1]}">${APPT_ST[a.status][0]}</span></td>
-        <td>${a.status === 'BOOKED' && ME.role === 'RECEPTION' ? `${AD === today() ? `<button class="sm p" onclick="receiveAppt(${i})">Tiếp nhận</button> ` : ''}<button class="sm" onclick="cancelAppt(${i})">Hủy hẹn</button>` : ''}</td></tr>`).join('')}</table>`
+        <td>${a.status === 'BOOKED' && ME.role === 'RECEPTION' ? `<button class="sm" onclick="printAppt(${i})">${icon('print')} In phiếu</button> ${AD === today() ? `<button class="sm p" onclick="receiveAppt(${i})">Tiếp nhận</button> ` : ''}<button class="sm" onclick="cancelAppt(${i})">Hủy hẹn</button>` : ''}</td></tr>`).join('')}</table>`
         : empty('Chưa có lịch hẹn nào trong ngày', 'sched')}</div>`);
 });
 
@@ -47,3 +47,11 @@ const cancelAppt = act(async i => {
 });
 // Mở màn đăng ký với hồ sơ và phòng của lịch hẹn; server chuyển lịch sang "Đã đến" khi đăng ký xong
 const receiveAppt = i => { const a = APPTS[i]; nav('reg'); RG.idt = a.id_type; RG.idn = a.id_number; RG.appt_id = a.id; RG.ticket_room = a.room_id; renderReg(); lookup(); };
+// Phiếu hẹn khám để đưa cho người bệnh
+function printAppt(i) {
+  const a = APPTS[i];
+  printDoc(`${docHead()}<h1>PHIẾU HẸN KHÁM BỆNH</h1><p class="c">Số thứ tự trong buổi: <b>${a.slot_no}</b></p>
+    <p>Họ tên: <b>${esc(a.full_name).toUpperCase()}</b> &nbsp; Mã BN: ${esc(a.patient_code)}<br>Ngày hẹn: <b>${dmy(a.day)}</b> &nbsp; Giờ dự kiến: <b>${a.time}</b> (${SHIFT[a.shift]})<br>
+    Phòng khám: <b>${esc(a.room_name)}</b> &nbsp; Bác sĩ: ${esc(a.doctor_name)}<br>Lý do hẹn: ${esc(a.reason || '—')}</p>
+    <p><small>Vui lòng đến trước giờ hẹn 15 phút, mang theo căn cước công dân và thẻ BHYT. Nếu không đến được, hãy báo cho quầy tiếp đón để hủy hẹn.</small></p>`);
+}

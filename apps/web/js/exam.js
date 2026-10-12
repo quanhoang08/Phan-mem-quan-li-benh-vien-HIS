@@ -52,6 +52,7 @@ V.exam = act(async (id, keep) => {
       <td>${o.status === 'RESULTED' ? '<span class="chip ok">Đã có KQ</span>' : o.status === 'CANCELLED' ? '<span class="chip bad">Đã hủy</span>' : '<span class="chip warn">Chờ thực hiện</span>'}</td>
       <td>${o.result_json?.values ? valuesTable(o.result_json.values) : esc(o.result_text || '')} ${o.is_abnormal ? '<span class="chip bad">Bất thường</span>' : ''} ${o.result_json?.image_url ? `<br><small>Ảnh PACS: <code>${esc(o.result_json.image_url)}</code></small>` : ''}</td>
       <td>${o.status === 'ORDERED' ? `<button class="d sm" onclick="cancelOrder('${o.id}')">Hủy</button>` : ''}</td></tr>`).join('')}</table>
+    ${X.orders.some(o => o.status !== 'CANCELLED') ? `<button style="margin-top:10px" onclick="printOrders()">${icon('print')} In phiếu chỉ định</button> ` : ''}
     ${X.orders.some(o => o.status === 'RESULTED') ? `<button style="margin-top:10px" onclick="printLab()">${icon('print')} In phiếu kết quả</button>` : ''}` : ''}</div>
    <div class="card"><h3>Khám thêm chuyên khoa</h3>${canOrder ? `<div class="row"><div><label for="csRoom">Mời phòng</label><select id="csRoom">${CAT.rooms.filter(r => r.code !== e.room_code && !X.consults.some(k => k.room_code === r.code && k.status !== 'CANCELLED')).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div>
       <div style="flex:2"><label for="csReason">Lý do mời khám</label><input id="csReason"></div><button onclick="orderConsult()">Mời khám</button></div>
@@ -194,6 +195,17 @@ const rangeWho = v => [v.sex === 'MALE' ? 'nam' : v.sex === 'FEMALE' ? 'nữ' : 
 const flagMark = f => f === 'H' ? '↑' : f === 'L' ? '↓' : '';
 const valuesTable = vals => `<table class="vt"><tr><th>Chỉ số</th><th class="n">Kết quả</th><th>Đơn vị</th><th>Tham chiếu</th></tr>${vals.map(v => `<tr class="${v.flag ? 'flag' : ''}"><td>${esc(v.name)} <small>${esc(v.code)}</small></td>
   <td class="n"><b>${v.value} ${flagMark(v.flag)}</b></td><td>${esc(v.unit || '')}</td><td>${refRange(v)}${rangeWho(v) ? ` <small>(${rangeWho(v)})</small>` : ''}</td></tr>`).join('')}</table>`;
+// Phiếu chỉ định cận lâm sàng (các chỉ định chưa hủy): người bệnh cầm đi các phòng thực hiện
+function printOrders() {
+  const e = X.encounter, p = X.patient, list = X.orders.filter(o => o.status !== 'CANCELLED');
+  printDoc(`${docHead()}<h1>PHIẾU CHỈ ĐỊNH CẬN LÂM SÀNG</h1><p class="c">Mã lượt khám: ${esc(e.code)}</p>
+    <p>Họ tên: <b>${esc(p.full_name).toUpperCase()}</b> &nbsp; Tuổi: ${p.age} &nbsp; Giới tính: ${SEX[p.sex]} &nbsp; Mã BN: ${esc(p.code)}<br>
+    Nơi chỉ định: ${esc(e.room_name)} &nbsp; Chẩn đoán: ${X.diagnoses.map(d => `${esc(d.name_vi)} (${esc(d.code)})`).join('; ') || '—'}
+    ${X.allergies.length ? `<br>Dị ứng: <b>${X.allergies.map(esc).join(', ')}</b>` : ''}</p>
+    <table><tr><th>STT</th><th>Dịch vụ</th><th>Nhóm</th><th>Trạng thái</th></tr>${list.map((o, i) => `<tr><td class="c">${i + 1}</td><td><b>${esc(o.name)}</b> <small>${esc(o.code)}</small></td>
+      <td>${GRP[o.grp] || ''}</td><td>${o.status === 'RESULTED' ? 'Đã có kết quả' : 'Chờ thực hiện'}</td></tr>`).join('')}</table>
+    <div class="sig"><div></div><div>${dateLine()}<br><b>Bác sĩ chỉ định</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${ME.role === 'DOCTOR' ? esc(ME.full_name) : ''}</div></div>`);
+}
 // Phiếu kết quả cận lâm sàng (chỉ các chỉ định đã có kết quả)
 function printLab() {
   const e = X.encounter, p = X.patient, done = X.orders.filter(o => o.status === 'RESULTED');
@@ -274,3 +286,4 @@ function printReferral() {
     Tình trạng người bệnh lúc chuyển tuyến: ${esc(v.condition || '')}<br>Lí do chuyển tuyến: <b>${CRIT[v.criteria]}</b>. ${esc(v.reason)}</p>
     <div class="sig"><div></div><div>${dateLine(new Date(d.issued_at))}<br><b>Người hành nghề khám bệnh, chữa bệnh</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${esc(docSigner('REFERRAL_OUT'))}</div></div>`);
 }
+

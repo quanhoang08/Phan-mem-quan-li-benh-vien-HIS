@@ -201,6 +201,7 @@ V.shift = act(async () => {
   SD ||= today();
   const [bar, cur, list] = await Promise.all([shiftBar(), ME.role === 'CASHIER' ? api('GET', '/shifts/current') : { shift: null }, api('GET', '/shifts?date=' + SD)]);
   const s = cur.shift, t = s?.totals;
+  SHL = list;
   main(`<h2>Ca thu ngân</h2>${s ? '' : bar}
   ${s ? `<div class="grid"><div class="card"><h3>Ca đang mở</h3><p style="margin-top:0">Mở lúc ${when(s.opened_at)} · quỹ đầu ca ${money(s.opening_float)}</p>
     <table><tr><th>Phương thức</th><th class="n">Số giao dịch</th><th class="n">Đã thu</th><th class="n">Đã hoàn</th></tr>
@@ -212,12 +213,24 @@ V.shift = act(async () => {
         <div><label for="snote">Ghi chú giải trình (bắt buộc khi lệch)</label><input id="snote"></div>
         <button class="p" onclick="closeShift('${s.id}')">Chốt ca</button></div></div></div>` : ''}
   <div class="card"><div style="max-width:200px;margin-bottom:10px"><label for="sd">Ngày</label><input id="sd" type="date" value="${SD}" onchange="SD=this.value;V.shift()"></div>
-  <table><tr><th>Thu ngân</th><th>Mở ca</th><th>Đóng ca</th><th class="n">Quỹ đầu ca</th><th class="n">Tiền mặt phải có</th><th class="n">Đếm được</th><th>Chênh lệch</th><th>Ghi chú</th></tr>
-  ${list.map(x => { const exp = x.expected_cash ?? x.totals.expected_cash; return `<tr><td>${esc(x.cashier)}</td><td>${when(x.opened_at)}</td><td>${x.closed_at ? when(x.closed_at) : '<span class="chip info">Đang mở</span>'}</td>
+  <table><tr><th>Thu ngân</th><th>Mở ca</th><th>Đóng ca</th><th class="n">Quỹ đầu ca</th><th class="n">Tiền mặt phải có</th><th class="n">Đếm được</th><th>Chênh lệch</th><th>Ghi chú</th><th></th></tr>
+  ${list.map((x, i) => { const exp = x.expected_cash ?? x.totals.expected_cash; return `<tr><td>${esc(x.cashier)}</td><td>${when(x.opened_at)}</td><td>${x.closed_at ? when(x.closed_at) : '<span class="chip info">Đang mở</span>'}</td>
     <td class="n">${money(x.opening_float)}</td><td class="n">${money(exp)}</td><td class="n">${x.closed_at ? money(x.counted_cash) : '—'}</td>
-    <td>${diffChip(x.closed_at ? x.counted_cash - exp : null)}</td><td>${esc(x.note || '')}</td></tr>`; }).join('')
-    || `<tr><td colspan="8">${empty('Không có ca nào trong ngày.', 'shift')}</td></tr>`}</table></div>`);
+    <td>${diffChip(x.closed_at ? x.counted_cash - exp : null)}</td><td>${esc(x.note || '')}</td><td><button class="sm" onclick="printShift(${i})">${icon('print')} In</button></td></tr>`; }).join('')
+    || `<tr><td colspan="9">${empty('Không có ca nào trong ngày.', 'shift')}</td></tr>`}</table></div>`);
 });
+// Biên bản chốt ca: số liệu lấy từ danh sách ca (ca đã đóng dùng số đã chốt, ca đang mở dùng số hiện tại)
+let SHL = [];
+function printShift(i) {
+  const x = SHL[i], t = x.totals, exp = x.expected_cash ?? t.expected_cash, closed = !!x.closed_at;
+  printDoc(`${docHead()}<h1>BIÊN BẢN ${closed ? 'CHỐT CA' : 'TẠM TÍNH'} THU NGÂN</h1><p class="c">Thu ngân: <b>${esc(x.cashier)}</b> · Mở ca: ${when(x.opened_at)}${closed ? ` · Đóng ca: ${when(x.closed_at)}` : ''}</p>
+    <table><tr><th>Phương thức</th><th class="r">Số giao dịch</th><th class="r">Đã thu</th><th class="r">Đã hoàn</th></tr>
+    ${Object.entries(METHOD).map(([k, n]) => `<tr><td>${n}</td><td class="r">${t.by_method[k].count}</td><td class="r">${money(t.by_method[k].collected)}</td><td class="r">${money(t.by_method[k].refunded)}</td></tr>`).join('')}</table>
+    <table><tr><td>Quỹ đầu ca</td><td class="r">${money(x.opening_float)}</td></tr><tr><td>Tiền mặt phải có trong két (quỹ đầu ca + thu − hoàn)</td><td class="r"><b>${money(exp)}</b></td></tr>
+    ${closed ? `<tr><td>Tiền mặt đếm được</td><td class="r"><b>${money(x.counted_cash)}</b></td></tr><tr><td>Chênh lệch</td><td class="r"><b>${x.counted_cash === exp ? 'Khớp sổ' : (x.counted_cash > exp ? 'Thừa ' : 'Thiếu ') + money(Math.abs(x.counted_cash - exp))}</b></td></tr>` : ''}</table>
+    ${x.note ? `<p>Giải trình: ${esc(x.note)}</p>` : ''}<p><small>Chuyển khoản và thẻ đối chiếu với sao kê ngân hàng, không nằm trong két.</small></p>
+    <div class="sig"><div>${dateLine()}<br><b>Thu ngân</b><br><small>(Ký, ghi rõ họ tên)</small><br><br><br>${esc(x.cashier)}</div><div><br><b>Quản lý xác nhận</b><br><small>(Ký, ghi rõ họ tên)</small></div></div>`);
+}
 const closeShift = act(async id => {
   const v = $('#counted').value;
   const r = await api('POST', `/shifts/${id}/close`, { counted_cash: v === '' ? '' : +v, note: $('#snote').value });
