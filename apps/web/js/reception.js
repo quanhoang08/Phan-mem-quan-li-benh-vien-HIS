@@ -3,9 +3,10 @@ let RG;
 const ID_TYPES = [['CCCD', 'CCCD'], ['BIRTH_CERT', 'Giấy khai sinh'], ['PASSPORT', 'Hộ chiếu'], ['OTHER', 'Khác']];
 
 V.reg = () => {
-  RG = { mode: 'search', idt: 'CCCD', idn: '' }; renderReg();
+  const mine = RG = { mode: 'search', idt: 'CCCD', idn: '' }; renderReg();
+  // kết quả của lần mở màn cũ (RG !== mine) bị bỏ, nếu không nó vẽ đè lên ô lễ tân đang gõ
   // lịch hẹn tái khám hôm nay nạp sau, chỉ vẽ lại nếu lễ tân chưa chuyển sang bước khác (regFor gán RG ngay sau nav)
-  Promise.all([api('GET', '/follow-ups'), api('GET', '/tickets')]).then(([fu, tickets]) => { if (RG.mode === 'search') { RG.fu = fu; RG.tickets = tickets; renderReg(); } }).catch(e => toast(e.message, true));
+  Promise.all([api('GET', '/follow-ups'), api('GET', '/tickets')]).then(([fu, tickets]) => { if (RG === mine) { RG.fu = fu; RG.tickets = tickets; if (RG.mode === 'search' && !RG.idn && !RG.qrs) renderReg(); } }).catch(e => toast(e.message, true));
 };
 
 const allergyBoxes = (checked = []) => `<div class="sec">${ALLERGY_CLASSES.map(c => `<label><input type="checkbox" class="al" value="${c}" ${checked.includes(c) ? 'checked' : ''}>${c}</label>`).join('')}</div>`;

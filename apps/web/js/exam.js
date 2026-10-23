@@ -140,6 +140,14 @@ async function saveClinical() {
   if ($('#fuDate') && (fd !== (X.encounter.follow_up_date || '') || fn !== (X.encounter.follow_up_note || ''))) // BR-FU-1
     v = (await api('PUT', `/encounters/${XID}/follow-up`, { date: fd || null, note: fn, version: v })).version;
   X.encounter.version = v;
+  X.encounter.exam_text = $('#exam').value; DX0 = dxKey(DX);
+}
+// Rời bệnh án sang màn khác (Phòng mổ, Nội trú...) thì tự lưu phần bác sĩ đã nhập, nếu không chẩn đoán/ghi chú chỉ nằm trong trình duyệt và mất
+async function autosaveExam() {
+  if (!X || !XID || !$('#exam') || !editableStatus(X.encounter)) return;
+  const dirty = $('#exam').value !== (X.encounter.exam_text ?? '') || dxKey(DX) !== DX0 || (JSON.stringify(readVitals()) !== VS0 && Object.values(readVitals()).some(x => x !== ''));
+  if (!dirty) return;
+  try { await saveClinical(); toast('Đã tự lưu bệnh án trước khi rời màn hình'); } catch (e) { toast('Chưa lưu được bệnh án: ' + e.message, true); }
 }
 async function putRx(o) {
   const lines = RX.map(({ drug_id, dose_morning, dose_noon, dose_afternoon, dose_evening, days, instruction, source }) => ({ drug_id, dose_morning, dose_noon, dose_afternoon, dose_evening, days, instruction, source }));

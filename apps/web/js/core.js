@@ -147,9 +147,13 @@ function ask({ title, message = '', fields = [], ok = 'Xác nhận', danger = fa
     (d.querySelector('input,textarea,select') || d.querySelector('[type=submit]')).focus();
   });
 }
+let NAVSEQ = 0; // tăng mỗi lần chuyển màn
 async function api(method, url, body, headers = {}) {
+  const seq = NAVSEQ;
   const r = await fetch('/api/v1' + url, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
+  // GET trả về sau khi người dùng đã sang màn khác: màn cũ không được vẽ đè lên màn mới (treo luôn phần còn lại của màn cũ)
+  if (method === 'GET' && seq !== NAVSEQ) return new Promise(() => {});
   if (!r.ok) throw Object.assign(new Error(j.message || j.code || 'Lỗi'), { code: j.code, status: r.status, data: j });
   return j;
 }
@@ -188,7 +192,7 @@ async function login2() {
     if (['CHALLENGE_EXPIRED', 'LOCKED'].includes(e.code)) { CHALLENGE = ''; $('#l2').hidden = true; $('#lu').disabled = $('#lp').disabled = false; }
   }
 }
-async function logout() { await api('POST', '/auth/logout').catch(() => {}); location.reload(); }
+async function logout() { if (XID && typeof autosaveExam === 'function') await autosaveExam(); await api('POST', '/auth/logout').catch(() => {}); location.reload(); }
 
 async function start() {
   $('#who').innerHTML = `${esc(ME.full_name)}<small>${ROLE[ME.role]}</small>`;
@@ -202,8 +206,8 @@ async function start() {
   drawBell();
   es.addEventListener('counts', e => {
     flow(JSON.parse(e.data));
-    // không làm mới khi người dùng đang gõ hoặc đã nhập dở (ô chữ dài, ô số), tránh mất dữ liệu chưa lưu
-    const busy = $$('#main input,#main textarea,#main select').some(x => x === document.activeElement || ((x.tagName === 'TEXTAREA' || x.type === 'number') && x.value));
+    // không làm mới khi người dùng đang gõ hoặc đã nhập dở (mọi ô chữ, số, ghi chú), tránh mất dữ liệu chưa lưu
+    const busy = $$('#main input,#main textarea,#main select').some(x => x === document.activeElement || (x.tagName !== 'SELECT' && !['checkbox', 'radio', 'date', 'datetime-local'].includes(x.type) && x.value));
     if (REFRESH && !busy) REFRESH();
   });
   $('#login').hidden = true; $('#app').hidden = false; // hiện app ngay trước khi vào màn đầu tiên: bấm menu sớm hơn sẽ không bị nav() ghi đè
@@ -215,7 +219,9 @@ function flow(c) {
   $('#flow').innerHTML = '<span class="lbl">Đang chờ:</span>' + [['reception', 'Tiếp đón'], ['exam', 'Khám'], ['lab', 'Cận lâm sàng'], ['pharmacy', 'Dược'], ['payment', 'Thanh toán']]
     .map(([k, n]) => `<div class="st" data-station="${k}"><span>${n}</span><b${k in prev && prev[k] !== c[k] ? ' class="bump"' : ''}>${c[k]}</b></div>`).join('<i>›</i>');
 }
-function nav(view, arg) {
+async function nav(view, arg) {
+  NAVSEQ++;
+  if (XID && view !== 'exam' && typeof autosaveExam === 'function') { REFRESH = null; await autosaveExam(); }
   REFRESH = null; ENTER = true;
   if (view !== 'exam') XID = null;
   $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === view));

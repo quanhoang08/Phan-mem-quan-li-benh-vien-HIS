@@ -39,6 +39,7 @@ const order = async (id, codes) => { await doc('POST', `/encounters/${id}/servic
 const resultAll = async (encCode) => { // KTV nhập kết quả cho mọi chỉ định đang chờ của lượt khám
   for (const g of ['LAB', 'IMAGING', 'FUNCTIONAL']) for (const o of (await lab('GET', `/lab/worklist?group=${g}`)).filter(x => x.enc_code === encCode)) {
     const s = g === 'LAB' ? await lab('GET', `/lab/instrument-sample?orderId=${o.id}`).catch(() => null) : null;
+    await lab('POST', `/service-orders/${o.id}/specimen/collect`); await lab('POST', `/service-orders/${o.id}/specimen/receive`); // BR-LAB-4 (CĐHA bỏ qua: không cần mẫu)
     await lab('POST', `/service-orders/${o.id}/result`, { result_text: s?.text ?? 'Chưa phát hiện bất thường (demo)', is_abnormal: s?.abnormal ?? false });
   }
 };
