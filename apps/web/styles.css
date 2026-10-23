@@ -271,3 +271,114 @@ button.p:hover:not(:disabled)::after{transform:translateX(120%);transition:trans
 dialog.modal[open]{animation:rise .3s var(--ease)}
 dialog.modal[open]::backdrop{animation:fade .3s ease}
 .box:not([hidden]){animation:rise .45s var(--ease) both}
+
+/* ---------- lớp tinh chỉnh giao diện (v2): phông, bề mặt, bảng, biểu mẫu ---------- */
+:root{
+  --font:"Be Vietnam Pro","Segoe UI",system-ui,Roboto,sans-serif;
+  --r-sm:7px;--r:10px;--r-lg:16px;
+  --sh:0 1px 2px #0b2a3010,0 2px 8px #0b2a300a;
+  --sh-lg:0 12px 32px #0b2a3022;
+  --line:#e0e7ec;--bg:#f1f5f7;
+}
+@media(prefers-color-scheme:dark){:root{--line:#263241;--bg:#0e141a;--sh:none;--sh-lg:0 12px 32px #0006}}
+body{font-family:var(--font);font-size:14px;line-height:1.55;font-feature-settings:"tnum" 0;
+  background:radial-gradient(1200px 500px at 85% -10%,color-mix(in srgb,var(--pri) 7%,transparent),transparent 60%),var(--bg);background-attachment:fixed}
+button,input,select,textarea{font-family:var(--font)}
+h2,h3{letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:22px;font-weight:700;margin-bottom:18px}
+h3{font-weight:650}
+p,.modal-msg{text-wrap:pretty}
+::selection{background:color-mix(in srgb,var(--pri) 25%,transparent)}
+*{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--mut) 40%,transparent) transparent}
+:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:var(--r-sm)}
+
+/* khung & điều hướng */
+#side{box-shadow:1px 0 0 #00000030}
+.brand{padding:20px 18px 18px}
+.brand b{font-size:16.5px;font-weight:700}
+.logo{border-radius:11px;box-shadow:0 4px 12px #0004}
+#menu{padding:14px 10px;gap:3px}
+#menu button{padding:9px 12px;border-radius:var(--r);font-size:13.5px;font-weight:500;position:relative}
+#menu button.on{background:linear-gradient(90deg,color-mix(in srgb,#5fd0c8 22%,var(--side-on)),var(--side-on));box-shadow:none}
+#menu button.on::before{content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:4px;border-radius:0 4px 4px 0;background:#5fd0c8}
+#menu button.on .ic{color:#7ee3da}
+#top{padding:11px 28px;border-bottom:1px solid var(--line);box-shadow:0 1px 0 #fff inset}
+#crumb{font-weight:650;font-size:15.5px;letter-spacing:-.01em}
+.av{background:linear-gradient(135deg,var(--pri2),color-mix(in srgb,var(--pri) 25%,var(--pri2)));border:1px solid color-mix(in srgb,var(--pri) 25%,transparent)}
+#top button{border-color:transparent;background:transparent;color:var(--mut)}
+#top button:hover:not(:disabled){background:var(--bg);color:var(--ink);border-color:var(--line)}
+#flow{padding:9px 28px;background:transparent;border-bottom:1px solid var(--line)}
+.st{background:var(--card);border:1px solid var(--line);font-weight:500}
+.st b{font-size:12px}
+main{padding:26px 28px 56px}
+
+/* thẻ & bố cục */
+.card{border-radius:var(--r-lg);padding:18px 20px;border-color:var(--line)}
+.card>h3:first-child{margin:-2px 0 14px;padding-bottom:12px;font-size:15px}
+.card:hover{box-shadow:var(--sh-lg)}
+.grid,.grid2{gap:16px}
+
+/* nút */
+button{border-radius:var(--r);padding:8px 15px;font-size:13.5px;box-shadow:0 1px 1px #0b2a3008}
+button.p{background:linear-gradient(180deg,color-mix(in srgb,var(--pri) 86%,#fff),var(--pri));border-color:color-mix(in srgb,var(--pri) 80%,#000);box-shadow:0 1px 2px #0b2a3033,inset 0 1px 0 #ffffff33}
+button.d:hover:not(:disabled){background:var(--bad2);border-color:var(--bad)}
+button.sm{padding:4px 11px;font-size:12.5px;border-radius:var(--r-sm)}
+
+/* biểu mẫu */
+label{font-size:12.5px;font-weight:550;letter-spacing:.01em}
+input,select,textarea{padding:9px 11px;border-radius:var(--r);border-color:#d3dce3;background:color-mix(in srgb,var(--card) 100%,transparent)}
+@media(prefers-color-scheme:dark){input,select,textarea{border-color:var(--line)}}
+input::placeholder,textarea::placeholder{color:color-mix(in srgb,var(--mut) 70%,transparent)}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 4px color-mix(in srgb,var(--pri) 16%,transparent)}
+.fld .v{border-radius:var(--r-sm);background:color-mix(in srgb,var(--bg) 70%,var(--card))}
+
+/* bảng */
+main table{border-collapse:separate;border-spacing:0}
+main th{position:sticky;top:0;z-index:1;font-size:11.5px;letter-spacing:.06em;padding:10px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--bg) 85%,var(--card))}
+main th:first-child{border-radius:var(--r-sm) 0 0 var(--r-sm)}main th:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0}
+main td{padding:11px 10px}
+main tbody tr:last-child td{border-bottom:0}
+main td.n,main th.n{font-variant-numeric:tabular-nums}
+
+/* nhãn, thông báo, KPI */
+.chip{padding:3px 11px;font-size:12px;font-weight:600;border:1px solid color-mix(in srgb,currentColor 18%,transparent)}
+.banner{border-radius:var(--r);border-left-width:4px;padding:11px 15px;font-weight:500}
+.kpi{gap:14px}
+.kpi>div,.kpi>button{border-radius:var(--r-lg);padding:16px 18px 15px 20px}
+.kpi small{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.kpi b{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:4px}
+.kpi>div::before,.kpi>button::before{width:4px;opacity:1;background:linear-gradient(180deg,var(--pri),color-mix(in srgb,var(--pri) 40%,transparent))}
+.tabs{gap:2px}
+.tabs button{padding:9px 16px;font-weight:550;box-shadow:none;border-radius:var(--r-sm) var(--r-sm) 0 0}
+.tabs button:hover:not(.on):not(:disabled){background:var(--pri2);color:var(--ink)}
+.pt{border-radius:var(--r-lg);border-left:4px solid var(--pri)}
+.empty{padding:44px 16px;border:1.5px dashed var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 50%,transparent)}
+.bar{border-radius:0 6px 6px 0;background:linear-gradient(90deg,color-mix(in srgb,var(--pri) 70%,#fff),var(--pri))}
+.money-big{letter-spacing:-.02em}
+
+/* hộp thoại & toast */
+dialog.modal{border-radius:var(--r-lg);box-shadow:var(--sh-lg)}
+dialog.modal::backdrop{background:#0b1a2299;backdrop-filter:blur(3px)}
+#toast div{border-radius:var(--r);font-weight:500;box-shadow:var(--sh-lg)}
+
+/* đăng nhập */
+.hero{background:
+  radial-gradient(circle at 1px 1px,#ffffff14 1px,transparent 0) 0 0/22px 22px,
+  linear-gradient(150deg,#0b2f38,#0a5f63)}
+.hero h1{font-size:38px;font-weight:700;letter-spacing:-.025em;line-height:1.15;text-wrap:balance}
+.hero li{font-size:15px;padding:10px 14px;border-radius:var(--r);background:#ffffff0f;border:1px solid #ffffff14;backdrop-filter:blur(4px)}
+.lform{background:var(--card)}
+.lform h2{font-size:26px;margin-bottom:20px}
+.demo button{border-radius:var(--r);background:var(--bg);border-color:transparent}
+.demo button:hover:not(:disabled){border-color:var(--pri)}
+#loginBtn{padding:11px;font-size:14.5px;font-weight:600}
+
+/* ---------- lớp tinh chỉnh (v3): thẻ KPI, biểu đồ, bước mẫu xét nghiệm ---------- */
+.kpi{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.kpi b{white-space:nowrap}
+.chart-none{text-align:center;color:var(--mut);font-size:12.5px;margin:-2px 0 -22px;position:relative;z-index:1;padding-top:52px;pointer-events:none}
+.card .steps{margin-bottom:10px}
+.card .steps span.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+.banner.info{background:var(--info2);color:var(--info)}
+.pt-tags .chip.info{font-weight:700}
+.row .d,.modal-actions .d{white-space:nowrap}

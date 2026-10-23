@@ -61,6 +61,8 @@ test('đường chính: ví dụ SPEC 4.7 qua 6 vai trò, hóa đơn 120.000 đ�
 
   // KTV: điền kết quả mẫu từ máy giả lập
   await loginAs(page, 'lab');
+  await page.getByRole('button', { name: 'Lấy mẫu', exact: true }).click(); // BR-LAB-4: lấy mẫu, nhận mẫu rồi mới nhập kết quả
+  await page.getByRole('button', { name: 'Nhận mẫu' }).click();
   await page.getByRole('button', { name: 'Điền kết quả mẫu' }).click();
   await expect(page.locator('textarea').first()).toHaveValue(/WBC/);
   await page.getByRole('button', { name: 'Lưu kết quả' }).click();
@@ -259,7 +261,7 @@ test('không BHYT: đóng phí khám trước khi khám; KTV chờ thu trước 
   await loginAs(page, 'lab');
   const card = page.locator('[data-order="XN02"]');
   await expect(card.getByText('Chưa đóng tiền')).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Lưu kết quả' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Lấy mẫu', exact: true })).toBeDisabled(); // chưa đóng tiền thì chưa lấy mẫu
   await logout(page);
 
   await loginAs(page, 'cashier');
@@ -279,6 +281,8 @@ test('không BHYT: đóng phí khám trước khi khám; KTV chờ thu trước 
 
   await loginAs(page, 'lab');
   await expect(card.getByText('Chưa đóng tiền')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Lấy mẫu', exact: true }).click();
+  await card.getByRole('button', { name: 'Nhận mẫu' }).click();
   await expect(async () => { // màn KTV tự làm mới theo sự kiện: lần làm mới đang chạy dở có thể xóa ô vừa nhập, nên thử lại cả cặp nhập + lưu
     await card.getByLabel('Glucose').fill('5.2');
     await card.getByRole('button', { name: 'Lưu kết quả' }).click();

@@ -21,7 +21,7 @@ const MENU = {
   PHARMACIST: [['rx', 'Đơn chờ cấp phát'], ['rxip', 'Cấp thuốc nội trú'], ['ret', 'Nhận trả thuốc'], ['inv', 'Tồn kho'], ['po', 'Mua hàng'], ['stk', 'Kiểm kê']],
   CASHIER: [['bill', 'Hóa đơn chờ'], ['ip', 'Nội trú (tạm ứng)'], ['prepay', 'Thu trước'], ['refunds', 'Hoàn tiền'], ['shift', 'Ca thu ngân']],
   MANAGER: [['dash', 'Bảng điều khiển'], ['rep', 'Báo cáo'], ['claims', 'Giám định BHYT'], ['er', 'Cấp cứu'], ['ip', 'Nội trú'], ['proc', 'Phòng mổ'], ['po', 'Duyệt mua hàng'], ['refunds', 'Duyệt hoàn tiền'], ['shift', 'Ca thu ngân'], ['trace', 'Truy vết'], ['audit', 'Nhật ký'], ['queue', 'Hàng đợi'], ['appt', 'Lịch hẹn'], ['sched', 'Lịch khám'], ['tv', 'Màn hình gọi số']],
-  NURSE: [['ip', 'Người bệnh nội trú'], ['er', 'Cấp cứu'], ['proc', 'Phòng mổ']],
+  NURSE: [['ip', 'Người bệnh nội trú'], ['lab', 'Lấy mẫu xét nghiệm'], ['er', 'Cấp cứu'], ['proc', 'Phòng mổ']],
   ADMIN: [['admin', 'Quản trị'], ['dash', 'Bảng điều khiển'], ['sched', 'Lịch khám'], ['audit', 'Nhật ký'], ['trace', 'Truy vết'], ['rep', 'Báo cáo']],
 };
 const ICON = {

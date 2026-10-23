@@ -31,6 +31,7 @@ const RULES = {
   ResultsReady: async ev => { const e = await encInfo(ev.encounter_id); return { roles: ['DOCTOR'], text: `Đã có đủ kết quả cận lâm sàng: ${label(e)}`, view: 'queue' }; },
   ExamFinished: async ev => { const e = await encInfo(ev.encounter_id); return { roles: ['PHARMACIST', 'CASHIER'], text: `Kết thúc khám, chờ cấp thuốc/thanh toán: ${label(e)}`, view: 'rx' }; },
   PrescriptionDispensed: async ev => { const e = await encInfo(ev.encounter_id); return { roles: ['CASHIER'], text: `Đã cấp thuốc, hóa đơn chờ thu: ${label(e)}`, view: 'bill' }; },
+  SpecimenRejected: async ev => { const e = await encInfo(ev.encounter_id); return { roles: ['DOCTOR', 'NURSE'], text: `Mẫu xét nghiệm bị từ chối, cần lấy lại: ${label(e)}`, view: 'lab', level: 'warn' }; },
   ConsultResulted: async ev => { const e = await encInfo(ev.encounter_id); return { roles: ['DOCTOR'], text: `Có kết luận khám chuyên khoa: ${label(e)}`, view: 'queue' }; },
   StockLow: async ev => ({ roles: ['PHARMACIST', 'MANAGER'], text: `Thuốc sắp hết: ${ev.name} (còn ${ev.qty})`, view: 'po', level: 'warn' }),
   PatientAdmitted: async () => ({ roles: ['NURSE'], text: 'Có người bệnh mới nhập viện', view: 'ip' }),

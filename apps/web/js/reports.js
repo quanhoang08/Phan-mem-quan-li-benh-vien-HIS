@@ -98,9 +98,10 @@ let DB = { from: '', to: '' };
 const shortMoney = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' tỷ' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' tr' : n >= 1e3 ? Math.round(n / 1e3) + ' k' : String(n);
 function barChart(rows, key, fmt, w = 640, h = 150) {
   const max = Math.max(1, ...rows.map(r => +r[key] || 0)), bw = w / rows.length, top = 18; // top: chỗ cho nhãn giá trị trên cột cao nhất
-  return `<svg viewBox="0 0 ${w} ${h + top + 28}" style="width:100%;height:auto" role="img" aria-label="Biểu đồ cột theo ngày">${rows.map((r, i) => {
+  const none = !rows.some(r => +r[key] > 0);
+  return `${none ? '<div class="chart-none">Chưa có số liệu trong khoảng này</div>' : ''}<svg viewBox="0 0 ${w} ${h + top + 28}" style="width:100%;height:auto" role="img" aria-label="Biểu đồ cột theo ngày">${[0, .5, 1].map(f => `<line x1="0" x2="${w}" y1="${top + h + 4 - f * h}" y2="${top + h + 4 - f * h}" stroke="var(--line)" stroke-dasharray="${f ? '3 4' : '0'}"/>`).join('')}${rows.map((r, i) => {
     const v = +r[key] || 0, bh = Math.round(v / max * h), x = i * bw + bw * 0.15;
-    return `<g transform="translate(0 ${top})"><title>${dmy(r.day)}: ${fmt(v)}</title><rect x="${x}" y="${h - bh + 4}" width="${bw * 0.7}" height="${Math.max(bh, v ? 2 : 0)}" rx="3" fill="var(--accent,#0f766e)" opacity=".85"/>
+    return `<g transform="translate(0 ${top})"><title>${dmy(r.day)}: ${fmt(v)}</title><rect x="${x}" y="${h - bh + 4}" width="${bw * 0.7}" height="${Math.max(bh, v ? 2 : 0)}" rx="3" fill="var(--pri)" opacity=".85"/>
       <text x="${x + bw * 0.35}" y="${h - bh}" text-anchor="middle" font-size="11" fill="currentColor">${v ? fmt(v) : ''}</text><text x="${x + bw * 0.35}" y="${h + 20}" text-anchor="middle" font-size="11" fill="currentColor" opacity=".7">${dmy(r.day).slice(0, 5)}</text></g>`;
   }).join('')}</svg>`;
 }

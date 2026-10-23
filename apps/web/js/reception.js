@@ -14,8 +14,14 @@ const patientForm = (p = {}) => `
     <div><label for="dob">Ngày sinh *</label><input id="dob" type="date" value="${esc(p.dob)}"></div>
     <div><label for="sex">Giới tính *</label><select id="sex"><option value="MALE" ${p.sex === 'MALE' ? 'selected' : ''}>Nam</option><option value="FEMALE" ${p.sex === 'FEMALE' ? 'selected' : ''}>Nữ</option></select></div></div>
   <div class="row" style="margin-top:10px"><div><label for="ph">Điện thoại</label><input id="ph" value="${esc(p.phone)}"></div><div><label for="ad">Địa chỉ</label><input id="ad" value="${esc(p.address)}"></div></div>
+  <div class="row" style="margin-top:10px"><div><label for="bt">Nhóm máu</label><select id="bt"><option value="">Chưa rõ</option>${BLOOD_TYPES.map(b => `<option ${p.blood_type === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
+    <div><label for="oc">Nghề nghiệp</label><input id="oc" value="${esc(p.occupation)}"></div><div><label for="eth">Dân tộc</label><input id="eth" value="${esc(p.ethnicity)}"></div>
+    <div><label for="emc">Người báo tin khi cần</label><input id="emc" placeholder="Họ tên, số điện thoại" value="${esc(p.emergency_contact)}"></div></div>
+  <div class="row" id="guard" style="margin-top:10px"><div><label for="gn">Người giám hộ <small>(bắt buộc dưới 6 tuổi)</small></label><input id="gn" value="${esc(p.guardian_name)}"></div>
+    <div><label for="gr">Quan hệ</label><input id="gr" placeholder="Cha, mẹ, ông, bà..." value="${esc(p.guardian_relation)}"></div><div><label for="gp">Điện thoại người giám hộ</label><input id="gp" value="${esc(p.guardian_phone)}"></div></div>
   <label style="margin-top:10px">Dị ứng thuốc</label>${allergyBoxes(p.allergies)}`;
-const readPatientForm = () => ({ full_name: $('#nm').value, dob: $('#dob').value, sex: $('#sex').value, phone: $('#ph').value, address: $('#ad').value, allergies: $$('.al:checked').map(x => x.value) });
+const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+const readPatientForm = () => ({ full_name: $('#nm').value, dob: $('#dob').value, sex: $('#sex').value, phone: $('#ph').value, address: $('#ad').value, blood_type: $('#bt').value, occupation: $('#oc').value, ethnicity: $('#eth').value, emergency_contact: $('#emc').value, guardian_name: $('#gn').value, guardian_relation: $('#gr').value, guardian_phone: $('#gp').value, allergies: $$('.al:checked').map(x => x.value) });
 // Mức hưởng do server đọc từ ký tự thứ 3 của số thẻ (BR-INS-4); ở đây chỉ hiển thị gợi ý
 const RATE_OF = { 1: 100, 2: 100, 3: 95, 4: 80, 5: 100 };
 const ROUTE = { PRIMARY: 'Đúng tuyến (KCB ban đầu)', REFERRAL: 'Chuyển tuyến / hẹn khám lại', EMERGENCY: 'Cấp cứu', SELF: 'Tự đến (không đúng tuyến)' };
@@ -67,6 +73,7 @@ function renderReg() {
            ['Đến ngày', (g.cards.find(c => c.valid_from <= t && t <= c.valid_to) || g.cards[0] || {}).valid_to ? new Date((g.cards.find(c => c.valid_from <= t && t <= c.valid_to) || g.cards[0] || {}).valid_to).toLocaleDateString('vi-VN') : ''], ['Nơi đăng ký KCB', esc((g.cards.find(c => c.valid_from <= t && t <= c.valid_to) || g.cards[0] || {}).facility_code)], ['Tuyến KCB', (g.cards.find(c => c.valid_from <= t && t <= c.valid_to) || g.cards[0] || {}).card_no ? ((g.cards.find(c => c.valid_from <= t && t <= c.valid_to) || g.cards[0] || {}).primary_here ? 'Đúng tuyến' : 'Cần chọn tuyến') : '']])}
          <div style="margin-top:10px"><button onclick="RG.editing=true;renderReg()">Sửa thông tin</button></div></div>
          <div><div class="bignum">${esc(RG.ticket_label || '0000')}</div><small class="mut" style="display:block;text-align:center">${RG.ticket_label ? 'Số lấy ở kiosk' : 'Chưa có phiếu kiosk'}</small></div></div>
+         ${p.blood_type || p.guardian_name ? `<div class="banner info" style="margin-top:10px">${p.blood_type ? `Nhóm máu <b>${esc(p.blood_type)}</b>` : ''}${p.blood_type && p.guardian_name ? ' · ' : ''}${p.guardian_name ? `Giám hộ <b>${esc(p.guardian_name)}</b>${p.guardian_relation ? ' (' + esc(p.guardian_relation) + ')' : ''} ${esc(p.guardian_phone)}` : ''}</div>` : ''}
          ${g.allergies.length ? `<div class="banner bad" style="margin-top:10px">Dị ứng: ${g.allergies.map(esc).join(', ')}</div>` : ''}
          <label style="margin-top:10px"><input type="checkbox" id="confirmInfo" ${g.confirmed ? 'checked' : ''} onchange="RG.confirmed=this.checked"> Đã xác nhận thông tin còn đúng với giấy tờ</label></div>`;
     // thẻ còn hiệu lực nhưng đăng ký KCB ban đầu nơi khác: lễ tân phải chọn tuyến (BR-INS-5)

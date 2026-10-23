@@ -10,6 +10,34 @@ const liveFlag = (id, code) => {
 };
 const analyteGrid = o => `<table class="vt" style="margin-bottom:8px"><tr><th>Chỉ số</th><th>Kết quả</th><th>Đơn vị</th><th>Tham chiếu</th><th></th></tr>${o.analytes.map(a => `<tr><td>${esc(a.name)} <small>${esc(a.code)}</small></td>
   <td><input id="v${o.id}_${a.code}" type="number" step="any" style="width:100px" aria-label="${esc(a.name)}" oninput="liveFlag('${o.id}','${a.code}')"></td><td>${esc(a.unit || '')}</td><td>${refRange(a) || '<small>chưa có khoảng cho tuổi này</small>'}${rangeWho(a) ? ` <small>(${rangeWho(a)})</small>` : ''}</td><td id="f${o.id}_${a.code}"></td></tr>`).join('')}</table>`;
+// BR-LAB-4: xét nghiệm đi qua 3 bước lấy mẫu, nhận mẫu, trả kết quả; điều dưỡng chỉ lấy mẫu, không nhập kết quả
+const SPEC = { BLOOD: 'máu', URINE: 'nước tiểu', STOOL: 'phân', SWAB: 'dịch phết', OTHER: 'khác' };
+const canResult = o => ME.role === 'LAB_TECH' && (o.grp !== 'LAB' || o.specimen_status === 'RECEIVED');
+const specimenBar = o => {
+  const st = o.specimen_status, step = st === 'RECEIVED' ? 3 : st === 'COLLECTED' ? 2 : 1;
+  return `<div class="steps" style="margin-bottom:10px">${['Lấy mẫu', 'Nhận mẫu', 'Trả kết quả'].map((t, i) => `<span class="${i + 1 === step ? 'on' : i + 1 < step ? 'done' : ''}"><b>${i + 1 < step ? '✓' : i + 1}</b>${t}</span>`).join('')}
+    ${o.barcode ? `<span class="chip info" title="Mã vạch mẫu">▮▯▮ ${esc(o.barcode)} · ${SPEC[o.specimen_type]}</span>` : `<span class="chip mute">Mẫu ${SPEC[o.specimen_type]}</span>`}</div>
+    ${st === 'REJECTED' ? `<div class="banner bad"><b>Mẫu bị từ chối:</b> ${esc(o.reject_reason)}. Cần lấy mẫu lại.</div>` : ''}
+    ${st === 'COLLECTED' && ME.role !== 'LAB_TECH' ? '<div class="banner info">Đã lấy mẫu, chờ phòng xét nghiệm nhận.</div>' : ''}
+    ${o.recollect_count ? `<small class="mut">Đã lấy lại ${o.recollect_count} lần</small>` : ''}`;
+};
+const specimenActions = o => {
+  if (o.grp !== 'LAB') return '';
+  const st = o.specimen_status, dis = o.prepay_required ? 'disabled title="Chờ người bệnh đóng tiền"' : '';
+  if (!st || st === 'REJECTED') return `<button class="p" onclick="specimen('${o.id}','collect')" ${dis}>${st ? 'Lấy mẫu lại' : 'Lấy mẫu'}</button>`;
+  if (st === 'COLLECTED' && ME.role === 'LAB_TECH') return `<button onclick="printLabel('${o.id}')">${icon('print')} In nhãn</button><button onclick="rejectSpecimen('${o.id}')" class="d">Từ chối mẫu</button><button class="p" onclick="specimen('${o.id}','receive')">Nhận mẫu</button>`;
+  return st === 'RECEIVED' ? `<button onclick="printLabel('${o.id}')">${icon('print')} In nhãn</button>` : '';
+};
+const specimen = act(async (id, step) => { await api('POST', `/service-orders/${id}/specimen/${step}`); toast(step === 'collect' ? 'Đã lấy mẫu, nhãn mã vạch đã tạo' : 'Đã nhận mẫu, có thể nhập kết quả'); V.lab(); });
+const rejectSpecimen = act(async id => {
+  const r = await ask({ title: 'Từ chối mẫu xét nghiệm', message: 'Mẫu sẽ được trả về để lấy lại. Bác sĩ được báo.', fields: [{ id: 'reason', label: 'Lý do (vỡ, tan huyết, thiếu thể tích...)', required: true }], ok: 'Từ chối mẫu', danger: true });
+  if (!r) return;
+  await api('POST', `/service-orders/${id}/specimen/reject`, { reason: r.reason }); toast('Đã từ chối mẫu, chờ lấy lại', true); V.lab();
+});
+const printLabel = id => {
+  const o = LABS.find(x => x.id === id);
+  printDoc(`<div class="c"><b>${esc(o.barcode)}</b><div class="big" style="font-size:34px;letter-spacing:6px">▮▯▮▮▯▮▯▮</div><b>${esc(o.full_name)}</b> · ${o.age} tuổi · ${SEX[o.sex]}<br>${esc(o.patient_code)} · ${esc(o.enc_code)}<br>${esc(o.name)} (${SPEC[o.specimen_type]})<br><small>${new Date().toLocaleString('vi-VN')}</small></div>`, 'thermal');
+};
 V.lab = act(async () => {
   REFRESH = V.lab;
   const list = LABS = await api('GET', '/lab/worklist' + (LG ? '?group=' + LG : ''));
@@ -19,9 +47,9 @@ V.lab = act(async () => {
     <div style="flex:0 0 240px"><span class="chip info">${GRP[o.grp] || esc(o.grp)}</span> ${waitChip(o.ordered_at)}${o.prepay_required ? ' <span class="chip bad" title="Không BHYT: đóng tiền tại quầy thu ngân trước khi thực hiện">Chưa đóng tiền</span>' : ''}
       <div style="margin-top:8px"><b>${esc(o.name)}</b> <small>${esc(o.code)}</small></div>
       <hr><b>${esc(o.full_name)}</b><br><small>${esc(o.patient_code)} · ${o.age} tuổi · ${SEX[o.sex]}<br>${esc(o.enc_code)} · chỉ định ${when(o.ordered_at)}</small></div>
-    <div style="flex:3">${o.analytes.length ? analyteGrid(o) : ''}<label for="r${o.id}">${o.analytes.length ? 'Nhận xét (để trống thì tự lập từ các chỉ số)' : 'Kết quả'}</label><textarea id="r${o.id}" style="min-height:${o.analytes.length ? 60 : 96}px"></textarea><div id="img${o.id}"></div>
-      <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="a${o.id}"> Bất thường</label></div>
-    <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end"><button onclick="sample('${o.id}')">Điền kết quả mẫu</button><button class="p" onclick="saveResult('${o.id}')" ${o.prepay_required ? 'disabled title="Chờ người bệnh đóng tiền"' : ''}>Lưu kết quả</button></div>
+    <div style="flex:3">${o.grp === 'LAB' ? specimenBar(o) : ''}${canResult(o) ? `${o.analytes.length ? analyteGrid(o) : ''}<label for="r${o.id}">${o.analytes.length ? 'Nhận xét (để trống thì tự lập từ các chỉ số)' : 'Kết quả'}</label><textarea id="r${o.id}" style="min-height:${o.analytes.length ? 60 : 96}px"></textarea><div id="img${o.id}"></div>
+      <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="a${o.id}"> Bất thường</label>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">${specimenActions(o)}${canResult(o) ? `<button onclick="sample('${o.id}')">Điền kết quả mẫu</button><button class="p" onclick="saveResult('${o.id}')" ${o.prepay_required ? 'disabled title="Chờ người bệnh đóng tiền"' : ''}>Lưu kết quả</button>` : ''}</div>
   </div></div>`).join('') || `<div class="card">${empty('Không có chỉ định nào đang chờ.', 'lab')}</div>`}`);
 });
 const sample = act(async id => {

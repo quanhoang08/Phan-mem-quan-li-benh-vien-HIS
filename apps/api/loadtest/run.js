@@ -62,6 +62,10 @@ async function flow() {
     const sv = pick(svcs.filter(s => s.grp === 'LAB'));
     if ((await as.doctor('4 chỉ định CLS', 'POST', `/encounters/${e}/service-orders`, { service_ids: [sv.id], version: v })).s !== 200) return;
     chart = await open('4b mở bệnh án');
+    for (const o of chart.orders) {
+      await as.lab('5a lấy mẫu', 'POST', `/service-orders/${o.id}/specimen/collect`);
+      await as.lab('5a nhận mẫu', 'POST', `/service-orders/${o.id}/specimen/receive`);
+    }
     for (const o of chart.orders) await as.lab('5 trả kết quả', 'POST', `/service-orders/${o.id}/result`, { result_text: 'Bình thường' });
     v = (await open('5b mở bệnh án')).encounter.version; // KTV đã chuyển trạng thái: lấy lại phiên bản
   }

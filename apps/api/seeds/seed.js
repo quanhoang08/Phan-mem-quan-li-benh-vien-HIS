@@ -21,7 +21,7 @@ const DRUGS = [['AMOX', 'Amoxicillin 500mg', 'viên', 'PENICILLIN', 2500, true, 
   ['COTRI', 'Co-trimoxazol 480mg', 'viên', 'SULFA', 1000, true, 250], ['PARA', 'Paracetamol 500mg', 'viên', null, 500, true, 800], ['CEFX', 'Cefixim 200mg', 'viên', 'CEPHALOSPORIN', 6000, true, 200],
   ['AZI', 'Azithromycin 250mg', 'viên', 'MACROLIDE', 7500, true, 150], ['OME', 'Omeprazol 20mg', 'viên', null, 1800, true, 300], ['LORA', 'Loratadin 10mg', 'viên', null, 800, true, 300],
   ['SALB', 'Salbutamol 2mg', 'viên', null, 600, true, 300], ['AMBR', 'Ambroxol 30mg', 'viên', null, 700, true, 300], ['METF', 'Metformin 500mg', 'viên', null, 900, true, 300],
-  ['AMLO', 'Amlodipin 5mg', 'viên', null, 700, true, 300], ['ORS', 'Oresol', 'gói', null, 3000, false, 100], ['VITC', 'Vitamin C 500mg', 'viên', null, 400, false, 300]];
+  ['AMLO', 'Amlodipin 5mg', 'viên', null, 700, true, 300], ['DIAZ', 'Diazepam 5mg', 'viên', null, 900, true, 120], ['MORP', 'Morphin sulfat 10mg', 'viên', null, 6500, true, 60], ['ORS', 'Oresol', 'gói', null, 3000, false, 100], ['VITC', 'Vitamin C 500mg', 'viên', null, 400, false, 300]];
 
 // Khoảng tham chiếu xét nghiệm: [mã dịch vụ, mã chỉ số, tên, đơn vị, thấp, cao, giới (null = cả hai), tuổi từ, tuổi đến].
 // Mỗi dòng là một khoảng; server chọn dòng cụ thể nhất theo giới/tuổi bệnh nhân. Số liệu chỉ để minh họa, cần đối chiếu với phòng xét nghiệm thật.
@@ -161,9 +161,10 @@ export async function seed(client) {
   await seedProcedures(q);
   for (const r of ICD) await q('INSERT INTO icd10(code,name_vi,common) VALUES ($1,$2,true)', ...r); // các mã mẫu là mã thường dùng
   await importIcd10(q); // danh mục đầy đủ (nếu có file) ghi đè tên của các mã mẫu
-  for (const s of SERVICES) await q('INSERT INTO service_catalog(code,name,grp,price,insurance_covered) VALUES ($1,$2,$3,$4,$5)', ...s);
+  for (const s of SERVICES) await q('INSERT INTO service_catalog(code,name,grp,price,insurance_covered,specimen_type) VALUES ($1,$2,$3,$4,$5,$6)', ...s, s[2] === 'LAB' ? (s[0] === 'XN04' ? 'URINE' : 'BLOOD') : null);
   for (const [code, name, unit, cls, price, cov, qty] of DRUGS) {
-    const { rows: [d] } = await q('INSERT INTO drug(code,name,unit,allergy_class,price,insurance_covered) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', code, name, unit, cls, price, cov);
+    const ctrl = { DIAZ: 'PSYCHOTROPIC', MORP: 'NARCOTIC' }[code] ?? null; // thuốc kiểm soát đặc biệt (BR-RX-9)
+    const { rows: [d] } = await q('INSERT INTO drug(code,name,unit,allergy_class,price,insurance_covered,control_class) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', code, name, unit, cls, price, cov, ctrl);
     // Mỗi thuốc một lô chính; Paracetamol có thêm lô ĐÃ hết hạn, Vitamin C thêm lô cận hạn để thấy FEFO và cảnh báo
     const lots = [[`${code}-${Y}01`, `${Y + 1}-12-31`, qty]];
     if (code === 'PARA') lots.push([`${code}-${Y - 2}09`, isoDays(-10), 50]);

@@ -38,7 +38,9 @@ V.exam = act(async (id, keep) => {
   <div class="pt"><span class="av lg">${esc(initials(p.full_name))}</span><div><b class="pt-name">${esc(p.full_name)}</b><br>
     <span class="mut">${esc(p.code)} · ${p.age} tuổi · ${SEX[p.sex]} · ${esc(e.room_name)} · đăng ký ${new Date(e.registered_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span></div>
     <div class="pt-tags">${prioChip(e.priority)}${e.benefit_rate_snapshot ? `<span class="chip">BHYT ${e.benefit_rate_snapshot}%</span>` : '<span class="chip mute">Không BHYT</span>'}
+    ${p.blood_type ? `<span class="chip info" title="Nhóm máu">🩸 ${esc(p.blood_type)}</span>` : ''}
     ${X.allergies.map(a => `<span class="chip bad" title="Dị ứng thuốc">⚠ ${esc(a)}</span>`).join('') || '<span class="chip ok">Chưa ghi nhận dị ứng</span>'}</div></div>
+  ${p.guardian_name ? `<div class="banner info"><b>Người giám hộ:</b> ${esc(p.guardian_name)}${p.guardian_relation ? ' (' + esc(p.guardian_relation) + ')' : ''} · ${esc(p.guardian_phone)}</div>` : ''}
   ${X.allergies.length ? `<div class="banner bad"><b>DỊ ỨNG:</b> ${X.allergies.map(esc).join(', ')}</div>` : ''}
   ${amend ? '<div class="banner warn">Hồ sơ đã khóa sau khi kết thúc khám. Mọi thay đổi sẽ được lưu thành <b>bản điều chỉnh</b> kèm lý do, bản trước và bản sau.</div>' : ''}
   <div class="grid"><div>
@@ -109,14 +111,16 @@ function addRxLine() { RX.push({ drug_id: CAT.drugs[0].id, dose_morning: 1, dose
 function drawRx(ed = X && editableStatus(X.encounter)) {
   const d = ed ? '' : 'disabled';
   $('#rxlist').innerHTML = RX.length ? `<table><tr><th>Thuốc</th>${SLOTS.map(([, n]) => `<th>${n}</th>`).join('')}<th>Số ngày</th><th class="n">SL</th><th></th></tr>
-  ${RX.map((l, i) => `<tr><td><select ${d} aria-label="Thuốc dòng ${i + 1}" class="rxdrug" onchange="RX[${i}].drug_id=this.value;drawRx()">${CAT.drugs.map(x => `<option value="${x.id}" ${x.id === l.drug_id ? 'selected' : ''}>${esc(x.name)}${x.allergy_class ? ' [' + x.allergy_class + ']' : ''}</option>`).join('')}</select>${stockNote(l.drug_id)}<br><select ${d} style="width:auto;margin-top:4px;font-size:13px;padding:4px 8px" aria-label="Nơi cấp dòng ${i + 1}" title="Mua ngoài: người bệnh tự mua, không cấp tại kho, BHYT không chi trả" onchange="RX[${i}].source=this.value">${Object.entries(RX_SRC).map(([k, n]) => `<option value="${k}" ${k === l.source ? 'selected' : ''}>${n}</option>`).join('')}</select><br><input placeholder="Cách dùng" style="margin-top:4px;width:100%" ${d} list="rxhint" aria-label="Cách dùng dòng ${i + 1}" value="${esc(l.instruction)}" oninput="RX[${i}].instruction=this.value"></td>
+  ${RX.map((l, i) => `<tr><td><select ${d} aria-label="Thuốc dòng ${i + 1}" class="rxdrug" onchange="RX[${i}].drug_id=this.value;drawRx()">${CAT.drugs.map(x => `<option value="${x.id}" ${x.id === l.drug_id ? 'selected' : ''}>${esc(x.name)}${x.allergy_class ? ' [' + x.allergy_class + ']' : ''}${x.control_class ? ' ⛔ ' + CTRL[x.control_class] : ''}</option>`).join('')}</select>${stockNote(l.drug_id)}<br><select ${d} style="width:auto;margin-top:4px;font-size:13px;padding:4px 8px" aria-label="Nơi cấp dòng ${i + 1}" title="Mua ngoài: người bệnh tự mua, không cấp tại kho, BHYT không chi trả" onchange="RX[${i}].source=this.value">${Object.entries(RX_SRC).map(([k, n]) => `<option value="${k}" ${k === l.source ? 'selected' : ''}>${n}</option>`).join('')}</select><br><input placeholder="Cách dùng" style="margin-top:4px;width:100%" ${d} list="rxhint" aria-label="Cách dùng dòng ${i + 1}" value="${esc(l.instruction)}" oninput="RX[${i}].instruction=this.value"></td>
     ${SLOTS.map(([k, n]) => `<td><input ${d} type="number" step="0.5" min="0" aria-label="${n} dòng ${i + 1}" style="width:64px" value="${l[k]}" oninput="RX[${i}].${k}=this.value;drawQ()"></td>`).join('')}
-    <td><input ${d} type="number" min="1" aria-label="Số ngày dòng ${i + 1}" style="width:64px" value="${l.days}" oninput="RX[${i}].days=this.value;drawQ()"></td>
+    <td><input ${d} type="number" min="1" max="${maxDays(l.drug_id)}" title="Tối đa ${maxDays(l.drug_id)} ngày" aria-label="Số ngày dòng ${i + 1}" style="width:64px" value="${l.days}" oninput="RX[${i}].days=this.value;drawQ()"></td>
 
     <td class="n" id="q${i}">${qty(l)}</td><td>${ed ? `<button class="d" onclick="RX.splice(${i},1);drawRx()">Xóa</button>` : ''}</td></tr>`).join('')}</table>`
     : '<span class="mut">Không kê thuốc</span>';
   $('#rxlist').insertAdjacentHTML('beforeend', `<datalist id="rxhint">${RX_HINTS.map(h => `<option value="${h}">`).join('')}</datalist>`);
 }
+const CTRL = { NARCOTIC: 'gây nghiện', PSYCHOTROPIC: 'hướng thần' };
+const maxDays = id => (CAT.drugs.find(d => d.id === id)?.control_class ? 10 : 30); // BR-RX-9, server kiểm lại
 const RX_SRC = { HOSPITAL: 'Tại viện', EXTERNAL: 'Mua ngoài' }; // BR-RX-7
 const RX_HINTS = ['Uống sau ăn no', 'Uống trước ăn 30 phút', 'Uống sáng 1, chiều 1', 'Uống sáng 1, trưa 1, chiều 1', 'Uống khi sốt trên 38,5°C, cách nhau ít nhất 4 giờ', 'Uống buổi tối trước khi ngủ', 'Ngậm dưới lưỡi', 'Bôi ngày 2 lần'];
 // tồn kho tại thời điểm tải danh mục, chỉ để bác sĩ tham khảo; dược sĩ mới là người chặn khi thiếu

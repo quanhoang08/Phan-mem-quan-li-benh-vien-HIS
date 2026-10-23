@@ -46,11 +46,15 @@ export async function allergyClasses(c, patientId) {
   return (await c.db.all('SELECT drug_class FROM patient_allergy WHERE patient_id=$1', patientId)).map(a => a.drug_class);
 }
 
+// BR-RX-9: giới hạn ngày kê mỗi đơn ngoại trú. Số minh họa theo TT 52/2017/TT-BYT (đơn thường) và TT 20/2017/TT-BYT (gây nghiện, hướng thần); kiểm lại văn bản hiện hành.
+// ponytail: chưa có ngoại lệ bệnh mạn tính dài ngày (danh mục riêng), thêm khi có danh mục
+export const RX_MAX_DAYS = 30, CONTROLLED_MAX_DAYS = 10;
+
 // S7: kê đơn. Server tính số lượng (BR-RX-1), chụp giá, chặn dị ứng (BR-RX-2, vượt chặn cần override_reason)
 route('PUT', '/encounters/:id/prescription', [D], async c => {
   const e = await getEnc(c, c.p.id); checkVersion(e, c.b); assertEditable(e);
   const lines = c.b.lines || [];
-  const drugs = lines.length ? await c.db.all('SELECT id, name, allergy_class, price, insurance_covered FROM drug WHERE id = ANY($1::uuid[]) AND active', lines.map(l => l.drug_id)) : [];
+  const drugs = lines.length ? await c.db.all('SELECT id, name, allergy_class, price, insurance_covered, control_class FROM drug WHERE id = ANY($1::uuid[]) AND active', lines.map(l => l.drug_id)) : [];
   const byId = new Map(drugs.map(d => [d.id, d]));
   if (lines.some(l => !byId.has(l.drug_id))) throw validation('Thuốc không hợp lệ');
 
@@ -72,6 +76,8 @@ route('PUT', '/encounters/:id/prescription', [D], async c => {
     for (const l of lines) {
       const dr = byId.get(l.drug_id);
       const days = num(l.days, 1, 365, 'Số ngày');
+      const maxDays = dr.control_class ? CONTROLLED_MAX_DAYS : RX_MAX_DAYS; // BR-RX-9
+      if (days > maxDays) throw new AppError(409, 'RX_DAYS_EXCEEDED', `${dr.name}: tối đa ${maxDays} ngày mỗi đơn${dr.control_class ? ' (thuốc kiểm soát đặc biệt)' : ''}`, { drug_id: dr.id, max_days: maxDays });
       const SLOT = ['dose_morning', 'dose_noon', 'dose_afternoon', 'dose_evening'];
       const slots = SLOT.some(k => l[k] !== undefined) ? SLOT.map(k => num(l[k] ?? 0, 0, 99, 'Liều theo buổi') ?? 0) : null; // liều theo buổi: sáng/trưa/chiều/tối
       const dose = slots ? Math.max(...slots) : num(l.dose_per_time, 0.01, 99, 'Liều mỗi lần'), times = slots ? slots.filter(x => x > 0).length : num(l.times_per_day, 1, 10, 'Số lần/ngày');

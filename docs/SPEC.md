@@ -426,6 +426,14 @@ Mỗi quy tắc dưới đây có test tự động (`apps/api/test/features.tes
 
 **Dữ liệu lớn và kiểm thử tải** (CSDL riêng `his_load`): `npm run load:setup` sinh 20.000 bệnh nhân và ~15.000 lượt khám lịch sử trong vài giây (`seeds/bulk.js`, ghi thẳng SQL nên không có audit lịch sử); `npm run load:run` chạy người dùng ảo song song qua API (đăng ký → khám → xét nghiệm → kê đơn → cấp phát → thu tiền, xen lẫn các màn hình đọc nặng), đo p50/p95/p99, đếm lỗi, kiểm các bất biến dữ liệu sau tải. Kết quả đo (24 người dùng, 20 giây): 22 lượt khám hoàn tất/giây, 329 yêu cầu/giây, p95 mọi yêu cầu dưới 150 ms, 0 lỗi. Lần đo đầu phát hiện bảng điều khiển mất 62 giây do thiếu chỉ mục khóa ngoại `payment(invoice_id)`; migration 028 thêm chỉ mục trigram cho tìm bệnh nhân và các chỉ mục khóa ngoại cần thiết, bảng điều khiển còn 121 ms.
 
+### 4.13 Nghiệp vụ sát thực tế (migration 030, `test/realism.test.js`)
+
+**Mẫu xét nghiệm** (BR-LAB-4, `modules/lab.js`, bảng `specimen`): chỉ định nhóm `LAB` đi qua 3 bước: lấy mẫu (KTV hoặc điều dưỡng), nhận mẫu tại labo (chỉ KTV), trả kết quả. Mỗi chỉ định một mẫu với mã vạch `MS` + 8 chữ số (`specimen_barcode_seq`), loại mẫu theo `service_catalog.specimen_type`. Lấy mẫu là một bước thực hiện nên cũng cần đóng tiền trước như trả kết quả (BR-BILL-5, `409 PREPAYMENT_REQUIRED`). Trả kết quả khi mẫu chưa `RECEIVED` bị chặn `409 SPECIMEN_REQUIRED`. Từ chối mẫu (vỡ, tan huyết, thiếu thể tích) bắt buộc lý do, phát thông báo cho bác sĩ, lấy lại dùng cùng mã vạch và tăng `recollect_count`. Chẩn đoán hình ảnh và thăm dò chức năng không cần mẫu (`409 NO_SPECIMEN_NEEDED`). Ghi `COLLECT_SPECIMEN`, `RECEIVE_SPECIMEN`, `REJECT_SPECIMEN`; màn KTV có nhãn in khổ nhiệt.
+
+**Giới hạn ngày kê** (BR-RX-9, `modules/clinical.js`): mỗi dòng thuốc ngoại trú tối đa 30 ngày; thuốc có `drug.control_class` (`NARCOTIC` gây nghiện, `PSYCHOTROPIC` hướng thần) tối đa 10 ngày, vượt thì `409 RX_DAYS_EXCEEDED`. Quản trị đặt nhóm kiểm soát trong danh mục thuốc. Số ngày là số minh họa theo TT 52/2017/TT-BYT và TT 20/2017/TT-BYT, cần đối chiếu văn bản hiện hành; chưa có ngoại lệ bệnh mạn tính dài ngày.
+
+**Hồ sơ nhân khẩu** (BR-ID-5, `modules/patients.js`): nhóm máu (8 giá trị ABO/Rh), nghề nghiệp, dân tộc, người báo tin, người giám hộ (họ tên, quan hệ, điện thoại). Trẻ dưới 6 tuổi bắt buộc có họ tên và số điện thoại người giám hộ khi tạo và khi sửa. Vai trò "tối thiểu" không thấy các trường này. Bệnh án hiện nhóm máu và người giám hộ ngay đầu trang.
+
 **Còn lại sau đợt này** (cần quyết định/nguồn ngoài, chưa làm): nối nhà mạng SMS và cổng giám định BHXH thật, ký số thật, mã hóa bí mật TOTP bằng KMS, đối chiếu mẫu giấy tờ và bảng mã với văn bản hiện hành, in thử trên máy in thật (đã kiểm bản xem trước PDF theo CSS in), khoảng tham chiếu xét nghiệm từ phòng xét nghiệm thật, nội trú nâng cao (y lệnh lặp theo chu kỳ, nửa ngày giường theo TT 39/2018).
 
 
