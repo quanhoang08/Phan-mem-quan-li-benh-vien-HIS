@@ -12,6 +12,7 @@ async function loginAs(page, user) {
   await page.locator('#loginBtn').click();
   await expect(page.locator('#who')).toBeVisible();
   await expect(page.locator('#main h2').first()).toBeVisible(); // chờ màn đầu tiên vẽ xong, nếu không nó có thể ghi đè màn vừa bấm
+  await expect(page.locator('#flow .st').first()).toBeVisible(); // SSE đã nối và vẽ thanh luồng: màn đầu không còn bị vẽ lại đè lên thao tác tiếp theo
 }
 const logout = async page => { await page.getByRole('button', { name: 'Đăng xuất' }).click(); await expect(page.locator('#loginBtn')).toBeVisible(); };
 

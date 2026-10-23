@@ -11,6 +11,7 @@ async function loginAs(page, user) {
   await page.locator('#loginBtn').click();
   await expect(page.locator('#who')).toBeVisible();
   await expect(page.locator('#main h2').first()).toBeVisible(); // chờ màn đầu tiên vẽ xong, nếu không nó có thể ghi đè màn vừa bấm
+  await expect(page.locator('#flow .st').first()).toBeVisible(); // SSE đã nối và vẽ thanh luồng: màn đầu không còn bị vẽ lại đè lên thao tác tiếp theo
 }
 async function logout(page) {
   await page.getByRole('button', { name: 'Đăng xuất' }).click();
@@ -20,8 +21,11 @@ const toast = page => page.locator('#toast div').last();
 
 async function registerPatient(page, idNumber, room = 'Phòng Nội') {
   await page.getByRole('button', { name: 'Đăng ký khám' }).first().click();
-  await page.getByLabel('Số giấy tờ').fill(idNumber);
-  await page.getByRole('button', { name: 'Tìm hồ sơ' }).click();
+  await expect(async () => { // màn đăng ký đôi khi vẽ lại ngay sau khi mở và xóa số vừa gõ: thử lại cả cụm gõ + tìm
+    await page.getByLabel('Số giấy tờ').fill(idNumber);
+    await page.getByRole('button', { name: 'Tìm hồ sơ' }).click();
+    await expect(page.getByLabel('Đã xác nhận thông tin còn đúng với giấy tờ')).toBeVisible({ timeout: 2500 });
+  }).toPass({ timeout: 20000 });
   await page.getByLabel('Đã xác nhận thông tin còn đúng với giấy tờ').check();
   await page.getByLabel('Phòng khám').selectOption({ label: room });
   await page.getByLabel('Lý do khám').fill('Ho, sốt 2 ngày');
@@ -433,7 +437,7 @@ test('không BHYT: thu trước khám thêm chuyên khoa; hủy chỉ định, l
   await openChart(page, label);
   for (const svc of ['Đường huyết', 'Siêu âm bụng']) {
     await page.getByRole('row', { name: new RegExp(svc) }).getByRole('button', { name: 'Hủy' }).click();
-    await expect(toast(page)).toContainText('nhận hoàn');
+    await expect(page.locator('#toast div', { hasText: 'nhận hoàn' }).last()).toBeVisible(); // thông báo chuông có thể đến sau và thành toast cuối
   }
   await page.getByLabel('Mời phòng').selectOption({ label: 'Tai Mũi Họng' });
   await page.getByLabel('Lý do mời khám').fill('Ù tai');
@@ -458,7 +462,7 @@ test('không BHYT: thu trước khám thêm chuyên khoa; hủy chỉ định, l
   await loginAs(page, 'doctor');
   await openChart(page, label);
   await page.getByRole('row', { name: /Tai Mũi Họng/ }).getByRole('button', { name: 'Hủy' }).click();
-  await expect(toast(page)).toContainText('nhận hoàn');
+  await expect(page.locator('#toast div', { hasText: 'nhận hoàn' }).last()).toBeVisible(); // thông báo chuông có thể đến sau và thành toast cuối
   await logout(page);
 
   // thu ngân đề nghị hoàn từng khoản: 25.000 và 40.000 tự duyệt, 120.000 chờ quản lý
